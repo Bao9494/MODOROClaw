@@ -193,3 +193,4 @@ user-skills/
 # Local release staging (downloaded CI artifacts + staged release files)
 /mac-artifacts-free/
 /release-assets/
+/.macrun.txt
