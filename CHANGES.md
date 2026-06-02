@@ -6,6 +6,27 @@
 
 ## 2026-06-02
 
+### Version: free edition renumbered 3.0.1-free → 2.0.0-free
+
+**File(s):** `electron/package.json`, `electron/package-lock.json` (2 fields),
+`README.md`, `.github/workflows/build-mac-release.yml` (example hint)
+
+**Why:** The free edition was at 3.0.1-free — *higher* than the premium product
+(2.4.x), which is backwards for a free/premium split. Renumbered the free line to
+2.0.0-free so it visibly sits below premium. README was also stale (still showed
+v3.0.0 while the build was 3.0.1-free); now consistent at v2.0.0-free.
+
+**Also (release side, done outside the repo):** the published v3.0.0-free and
+v3.0.1-free GitHub releases + tags were deleted and a single v2.0.0-free release
+cut in their place. The current installers were re-uploaded under it — note they
+still internally report 3.0.1-free until the next build is cut natively at 2.0.0.
+`skills/operations/zalo.md` `version: 3.0.0` left as-is (that's the skill doc's own
+metadata version, not the app version).
+
+**State:** done
+
+---
+
 ### Security/hygiene: public-repo cleanup (MODOROClaw is public)
 
 **File(s):** `electron/lib/nine-router.js` (JWT secret), `.gitignore` + `CLAUDE.md` (untrack), `README.md`

@@ -12,7 +12,7 @@ on:
         default: 'false'
         type: boolean
       release_tag:
-        description: 'Git tag for the release (e.g. v3.0.1-free)'
+        description: 'Git tag for the release (e.g. v2.0.0-free)'
         required: false
         default: ''
         type: string
