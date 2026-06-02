@@ -12,13 +12,13 @@ Desktop app bundle sẵn mọi thứ. Tải file cài, chạy wizard, có ngay t
 
 ### Windows
 
-1. Tải `9BizClaw Setup.exe` từ [Releases](https://github.com/modoro-digital/9BizClaw/releases)
+1. Tải `9BizClaw Setup.exe` từ [Releases](https://github.com/modoro-digital/MODOROClaw/releases)
 2. Double-click → cài → launch
 3. Lần đầu: splash bar trích xuất vendor (~30–60s) → wizard 5 bước → xong
 
 ### macOS
 
-1. Tải `.dmg` (arm64 = Apple Silicon, x64 = Intel) từ [Releases](https://github.com/modoro-digital/9BizClaw/releases)
+1. Tải `.dmg` (arm64 = Apple Silicon, x64 = Intel) từ [Releases](https://github.com/modoro-digital/MODOROClaw/releases)
 2. Kéo icon vào **Applications**
 3. Lần đầu mở: **System Settings → Privacy & Security → Open Anyway**
 4. Wizard 5 bước → xong
@@ -122,8 +122,8 @@ Bao gồm Node.js v22, OpenClaw 2026.4.14, 9Router, OpenZCA, OpenZalo (~1.8 GB u
 ### Windows
 
 ```bash
-git clone https://github.com/modoro-digital/9BizClaw.git
-cd 9BizClaw/electron
+git clone https://github.com/modoro-digital/MODOROClaw.git
+cd MODOROClaw/electron
 npm install
 npm run build:win
 # Output: dist/9BizClaw Setup X.X.X.exe (~360 MB)
@@ -132,27 +132,26 @@ npm run build:win
 ### macOS
 
 ```bash
-cd 9BizClaw/electron
+cd MODOROClaw/electron
 npm install
 npm run build:mac:arm      # Apple Silicon
 npm run build:mac:intel    # Intel
 # Output: dist/9BizClaw-X.X.X-arm64.dmg
 ```
 
-### Dev mode (Windows)
+### Dev mode
 
 ```bash
-cd 9BizClaw
-./RUN.bat
+cd MODOROClaw/electron
+npm install
+npm start
 ```
 
 ---
 
 ## Quy tắc phát triển
 
-Đọc [CLAUDE.md](CLAUDE.md) trước khi sửa code.
-
-- Mọi fix phải áp dụng được cho fresh install (`RESET.bat → RUN.bat`)
+- Mọi fix phải áp dụng được cho fresh install
 - Third-party versions pin theo [PINNING.md](PINNING.md)
 - Smoke test chạy tự động trước mỗi build — fail thì build bị chặn
 

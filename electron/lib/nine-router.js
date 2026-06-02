@@ -36,6 +36,26 @@ function get9RouterDataDir() {
 /** @returns {string} Path to 9Router's legacy db.json settings file */
 function get9RouterDbPath() { return path.join(get9RouterDataDir(), 'db.json'); }
 
+// Per-install JWT secret. Must be stable across restarts (so 9Router auth
+// cookies survive) but NOT a hardcoded constant — this source is public, and a
+// shared literal lets anyone forge a valid cookie for any user's localhost
+// 9Router. Generate a random 256-bit secret once, persist it in DATA_DIR, and
+// reuse it thereafter. Each install gets its own.
+function get9RouterJwtSecret() {
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+  const file = path.join(get9RouterDataDir(), '.jwt-secret');
+  try {
+    const existing = fs.readFileSync(file, 'utf8').trim();
+    if (existing) return existing;
+  } catch {}
+  const secret = crypto.randomBytes(32).toString('hex');
+  try {
+    fs.mkdirSync(get9RouterDataDir(), { recursive: true });
+    fs.writeFileSync(file, secret, { mode: 0o600 });
+  } catch {}
+  return secret;
+}
+
 let _9routerSqliteFixAttempted = false;
 let _cached9RouterCliSecret = null;
 
@@ -438,18 +458,18 @@ function start9Router() {
       routerSpawnOpts = { shell: isWin };
     }
     // Pin 9Router auth so the login form always accepts "123456" and the JWT
-    // cookie stays valid across restarts. Without these env vars 9Router falls
-    // back to its compiled defaults — but JWT_SECRET also defaults to a fixed
-    // string, and INITIAL_PASSWORD defaults to "123456". The CEO-reported login
+    // cookie stays valid across restarts. Without INITIAL_PASSWORD, 9Router
+    // falls back to its compiled default ("123456"); the CEO-reported login
     // failure is usually because a previous run wrote a custom hashed password
     // into 9Router's settings store, so the literal "123456" stops working.
-    // Pinning INITIAL_PASSWORD here is harmless when no stored password exists,
-    // and pinning JWT_SECRET makes auth cookies survive Electron restarts.
+    // Pinning INITIAL_PASSWORD here is harmless when no stored password exists.
+    // JWT_SECRET is a per-install random value (see get9RouterJwtSecret) — never
+    // a hardcoded constant, since this source is public.
     const routerEnv = {
       ...process.env,
       DATA_DIR: process.env.DATA_DIR || get9RouterDataDir(),
       INITIAL_PASSWORD: process.env.INITIAL_PASSWORD || '123456',
-      JWT_SECRET: process.env.JWT_SECRET || 'REDACTED-ROTATED-SECRET',
+      JWT_SECRET: get9RouterJwtSecret(),
     };
     const thisFd = _routerLogFd;
     routerProcess = spawn(routerCmd, routerArgs, {

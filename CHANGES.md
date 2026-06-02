@@ -6,6 +6,44 @@
 
 ## 2026-06-02
 
+### Security/hygiene: public-repo cleanup (MODOROClaw is public)
+
+**File(s):** `electron/lib/nine-router.js` (JWT secret), `.gitignore` + `CLAUDE.md` (untrack), `README.md`
+
+**What + why:** The repo `modoro-digital/MODOROClaw` is public. Three problems fixed:
+
+1. **Hardcoded JWT secret** — `nine-router.js` pinned `JWT_SECRET` to the literal
+   `'REDACTED-ROTATED-SECRET'`. A shared constant in public source
+   lets anyone forge a valid 9Router auth cookie. **Fix:** new `get9RouterJwtSecret()`
+   generates a random 256-bit secret on first run, persists it to
+   `<DATA_DIR>/.jwt-secret` (mode 0600), and reuses it — so cookies still survive
+   restarts but each install has its own secret. `INITIAL_PASSWORD=123456` kept
+   (localhost-only default, intentional).
+
+2. **CLAUDE.md published** — the internal engineering journal documents the
+   licensing/revocation Gist URL + GitHub handle, hardware-lock seal scheme,
+   default credentials, ports, and every plugin bypass. **Fix:** `git rm --cached
+   CLAUDE.md` + added to `.gitignore`. Kept on disk for local dev; not shipped in
+   the product, so no build impact.
+
+3. **README pointed at a non-existent repo** — all Releases + clone links used
+   `github.com/modoro-digital/9BizClaw` (404; real repo is `MODOROClaw`). Dev-mode
+   block called the gitignored `RUN.bat`. **Fix:** corrected all URLs to
+   `MODOROClaw`, replaced `RUN.bat` with `npm start`, dropped the now-private
+   `CLAUDE.md`/`RESET.bat` references from the dev-rules section.
+
+**Not done (left to CEO — irreversible / business calls):** the old JWT literal,
+Gist URL, and default password remain in *git history* — forward edits don't purge
+them (rotating the JWT is the real mitigation since each install now self-generates).
+A full purge needs a history rewrite + force-push, or making the repo private.
+`AGENTS.md` left tracked: it ships inside every distributed binary (extractable from
+any install) and removing it breaks source builds — making the repo private is the
+only real protection. `9BizClaw-Premium` repo is also public (separate from this fix).
+
+**State:** done (local). Push to `modoroclaw/main` pending.
+
+---
+
 ### Fix: zalo-followup cron 9:30 AM gửi lỗi "parameter conflict" cho sessions_send
 
 **File(s):** `electron/lib/cron.js` — `buildZaloFollowUpPrompt()` (lines ~1227-1229, ~1250)

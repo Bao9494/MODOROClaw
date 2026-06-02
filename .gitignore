@@ -117,6 +117,10 @@ scripts/backup.sh
 scripts/setup.sh
 
 # Dev docs — not part of app
+# CLAUDE.md is an internal engineering journal: it documents the licensing /
+# revocation / default-credential design and must NOT be published. Kept on
+# disk for local dev, never committed.
+CLAUDE.md
 DESIGN-SYSTEM.md
 RELEASE-STRATEGY.md
 SECURITY-PLAN.md
