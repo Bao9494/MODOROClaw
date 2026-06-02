@@ -23,6 +23,7 @@ Bot tự tạo hồ sơ khách trong `memory/zalo-users/<senderId>.md` và `memo
 4. **Không chắc về ngữ cảnh?** -> Dùng `memory_search`
 5. **Bắt đầu phiên:** Persona và tình trạng hôm nay đã inject sẵn vào SOUL.md và USER.md (tự động). KHÔNG cần đọc `active-persona.md` hay `shop-state.json` riêng. Tra knowledge khi cần: `knowledge/cong-ty/index.md` + `knowledge/san-pham/index.md` + `knowledge/nhan-vien/index.md`.
 6. **Giới hạn cứng:** Tối đa 5 lần đi sâu khi bắt đầu phiên
+7. **Thay đổi code:** MỌI thay đổi phải ghi vào `CHANGES.md` TRƯỚC KHI commit. Commit ghi what, CHANGES.md ghi what + why + how.
 
 ## File tham khảo
 | File | Nội dung |

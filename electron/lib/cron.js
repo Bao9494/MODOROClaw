@@ -1224,9 +1224,8 @@ function buildZaloFollowUpPrompt(candidates) {
 
   if (candidates.length === 0) {
     return (
-      `Gửi cho CEO NỘI DUNG CHÍNH XÁC NHƯ SAU (không thêm chữ, không hỏi lại, không bịa):\n\n` +
       `Không có khách nào cần follow-up hôm nay.\n\n` +
-      `Gửi qua tool sessions_send.`
+      `Gửi cho CEO báo cáo ngắn này qua tin nhắn. KHÔNG emoji, KHÔNG hỏi lại.`
     );
   }
 
@@ -1248,7 +1247,7 @@ function buildZaloFollowUpPrompt(candidates) {
     blocks.join('\n\n') +
     `\n\n` +
     `Với mỗi khách, thêm dòng "Gợi ý nhắn:" với 1 câu nhắn tin tự nhiên, cụ thể theo ngữ cảnh của khách đó. Không dùng template. Không bắt đầu bằng "Chào anh/chị" thuần túy.\n\n` +
-    `Gửi đúng tool sessions_send. KHÔNG emoji, KHÔNG hỏi lại CEO, KHÔNG bịa thêm khách ngoài danh sách trên.`
+    `Gửi cho CEO báo cáo đầy đủ này qua tin nhắn. KHÔNG emoji, KHÔNG hỏi lại CEO, KHÔNG bịa thêm khách ngoài danh sách trên.`
   );
 }
 
