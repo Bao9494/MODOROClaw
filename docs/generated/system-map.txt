@@ -111,14 +111,14 @@ Dashboard Pages
 - zalo
 
 Large Source Files
-- electron/ui/dashboard.html: 488123 bytes
+- electron/ui/dashboard.html: 488176 bytes
 - electron/lib/dashboard-ipc.js: 256464 bytes
 - electron/lib/cron-api.js: 168276 bytes
 - electron/lib/cron.js: 141477 bytes
 - electron/ui/wizard.html: 124006 bytes
 - electron/lib/knowledge.js: 96863 bytes
 - electron/lib/channels.js: 95939 bytes
-- electron/lib/gateway.js: 84305 bytes
+- electron/lib/gateway.js: 82211 bytes
 - electron/lib/runtime-installer.js: 75692 bytes
 - electron/ui/preview-telegram-redesign.html: 66621 bytes
 - electron/lib/config.js: 61589 bytes
