@@ -118,7 +118,7 @@ Large Source Files
 - electron/ui/wizard.html: 124006 bytes
 - electron/lib/knowledge.js: 96863 bytes
 - electron/lib/channels.js: 95939 bytes
-- electron/lib/gateway.js: 82211 bytes
+- electron/lib/gateway.js: 81997 bytes
 - electron/lib/runtime-installer.js: 75692 bytes
 - electron/ui/preview-telegram-redesign.html: 66621 bytes
 - electron/lib/config.js: 61589 bytes
