@@ -4,6 +4,16 @@
 
 ---
 
+## 2026-06-06 (tối) — CI: bỏ trigger tag trùng ở build-mac.yml
+
+**File:** `.github/workflows/build-mac.yml`
+
+**Bug:** Cả `build-mac.yml` LẪN `build-mac-release.yml` đều `on: push: tags: 'v*'` và đều có job tạo GitHub Release. Push 1 tag `v*` → CHẠY 2 build mac ký+notarize (~40 phút mỗi cái, tốn 2x) → 2 job cùng `softprops/action-gh-release` race nhau publish CÙNG 1 release. `build-mac-release.yml` là bản canonical (các commit fix release_tag + gate sign_available đều ở đó); `build-mac.yml` là bản legacy (đụng lần cuối ở v3.0.0-free).
+
+**Fix:** Bỏ trigger `push: tags` khỏi `build-mac.yml` → chỉ còn `workflow_dispatch` (chạy tay khi cần). Chỉ `build-mac-release.yml` auto build+release trên tag push.
+
+---
+
 ## 2026-06-06 (tối) — Telegram im lặng: bỏ cascade restart gateway khi Zalo listener chết
 
 **File:** `electron/lib/gateway.js` (`startFastWatchdog`, nhánh Zalo sub-check)

@@ -1,9 +1,10 @@
 name: Build Mac .dmg
 
+# NOTE: tag-push trigger removed — build-mac-release.yml is the canonical
+# tag→release workflow. Two workflows on `push: tags: v*` both ran a ~40min
+# signed build AND both raced to publish the same GitHub release. This legacy
+# duplicate is now manual-dispatch only.
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       release:
