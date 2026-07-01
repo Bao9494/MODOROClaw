@@ -145,6 +145,353 @@ function purgeAgentSessions(caller) {
 function getBrandAssetsDir() { return path.join(getWorkspace(), 'brand-assets'); }
 function getMediaAssetsDir() { return path.join(getWorkspace(), 'media-assets'); }
 
+// Facebook / AiVideoAuto premium config helpers
+function generateFbId(prefix, sourceId) {
+  const crypto = require('crypto');
+  const hash = crypto.createHash('sha256').update(String(sourceId)).digest('hex').slice(0, 8);
+  return `${prefix}_${hash}`;
+}
+
+function getFbConfigPath() { return path.join(getWorkspace(), 'fb-config.json'); }
+
+/**
+ * Decrypt a single safeStorage-encrypted base64 token string.
+ * Returns { value, error } — value is the decrypted string or null on failure.
+ */
+function _decryptToken(encryptedBase64) {
+  if (!encryptedBase64) return { value: null, error: null };
+  try {
+    const { safeStorage } = require('electron');
+    if (safeStorage.isEncryptionAvailable()) {
+      return { value: safeStorage.decryptString(Buffer.from(encryptedBase64, 'base64')), error: null };
+    }
+    return { value: encryptedBase64, error: null }; // safeStorage unavailable — stored plaintext
+  } catch (e) {
+    console.error('[fb-config] token decryption failed:', e.message);
+    return { value: null, error: 'decrypt_failed' };
+  }
+}
+
+/**
+ * Encrypt a plaintext token via safeStorage. Returns base64 string or the
+ * original value if safeStorage is unavailable.
+ */
+function _encryptToken(plaintext) {
+  if (!plaintext) return plaintext;
+  try {
+    const { safeStorage } = require('electron');
+    if (safeStorage.isEncryptionAvailable()) {
+      return safeStorage.encryptString(plaintext).toString('base64');
+    }
+    // Windows/Mac always have safeStorage (DPAPI/Keychain); this only hits Linux
+    // without a keyring. Log LOUD so a plaintext-token build is never silent.
+    console.error('[fb-config] SECURITY: safeStorage unavailable — FB token stored in PLAINTEXT (no OS keyring)');
+    return plaintext;
+  } catch {
+    return plaintext;
+  }
+}
+
+/**
+ * Detect old (single-page) config shape: has `accessToken` at root, no `pages` array.
+ */
+function _isOldFbConfigShape(cfg) {
+  return cfg && !Array.isArray(cfg.pages) && ('accessToken' in cfg || 'pageId' in cfg);
+}
+
+/**
+ * Add `targetPageId` to every schedule entry in fb-scheduled-posts.json that
+ * lacks one. Called during migration from old single-page shape.
+ */
+function backfillScheduleTargetPageId(pageInternalId) {
+  try {
+    const ws = getWorkspace();
+    if (!ws) return;
+    const schedulePath = path.join(ws, 'fb-scheduled-posts.json');
+    if (!fs.existsSync(schedulePath)) return; // fresh install — no schedules to backfill
+    const raw = fs.readFileSync(schedulePath, 'utf-8');
+    const schedules = JSON.parse(raw);
+    if (!Array.isArray(schedules)) return;
+    let changed = false;
+    for (const entry of schedules) {
+      if (entry && !entry.targetPageId) {
+        entry.targetPageId = pageInternalId;
+        changed = true;
+      }
+    }
+    if (changed) {
+      writeJsonAtomic(schedulePath, schedules);
+      console.log('[fb-config] backfilled targetPageId on', schedules.length, 'schedule entries');
+    }
+  } catch (e) {
+    console.warn('[fb-config] backfillScheduleTargetPageId failed:', e?.message);
+  }
+}
+
+/**
+ * Migrate old single-page config shape to multi-page shape.
+ * Backs up old config, builds new shape, writes it, returns decrypted new config.
+ */
+function migrateFbConfig(oldCfg) {
+  const ws = getWorkspace();
+
+  // Backup old config before migration
+  try {
+    const backupPath = path.join(ws, 'fb-config.backup.json');
+    const raw = fs.readFileSync(getFbConfigPath(), 'utf-8');
+    fs.writeFileSync(backupPath, raw, 'utf-8');
+    console.log('[fb-config] backed up old config to fb-config.backup.json');
+  } catch (e) {
+    console.warn('[fb-config] backup before migration failed:', e?.message);
+  }
+
+  const oldPageId = oldCfg.pageId || 'unknown';
+  const tokenId = generateFbId('tok', oldPageId);
+  const pageInternalId = generateFbId('page', oldPageId);
+  const connectedAt = oldCfg.connectedAt || new Date().toISOString();
+
+  // Decrypt old accessToken for the new shape (it was already decrypted by the
+  // caller if the old readFbConfig path was used, but during migration we read
+  // raw from disk so it may still be encrypted).
+  let decryptedPageToken = oldCfg.accessToken;
+  // If we're called with a raw (encrypted) token, try decrypting it
+  if (decryptedPageToken && typeof decryptedPageToken === 'string') {
+    // Check if it looks like base64-encoded encrypted data (safeStorage produces
+    // base64 strings that are typically long). We can't tell for sure, so just
+    // try decrypt and fall back to raw value.
+    const result = _decryptToken(decryptedPageToken);
+    if (result.value) decryptedPageToken = result.value;
+    // If decryption failed, keep the original — it might be plaintext already
+  }
+
+  const newCfg = {
+    tokens: [{
+      id: tokenId,
+      userToken: null,
+      userName: 'Tai khoan cu',
+      isLegacy: true,
+      pageIds: [pageInternalId],
+      connectedAt,
+    }],
+    pages: [{
+      id: pageInternalId,
+      tokenId,
+      pageId: oldPageId,
+      pageAccessToken: decryptedPageToken,
+      pageName: oldCfg.pageName || null,
+      pageAvatarUrl: null,
+      shortName: null,
+      category: null,
+      enabled: true,
+      connectedAt,
+    }],
+  };
+
+  // Backfill existing schedules with the new page ID
+  backfillScheduleTargetPageId(pageInternalId);
+
+  // Write new shape (encrypts tokens)
+  writeFbConfig(newCfg);
+
+  console.log('[fb-config] migrated single-page → multi-page config (pageId=' + oldPageId + ')');
+
+  // Return decrypted version for the caller
+  return newCfg;
+}
+
+function readFbConfig() {
+  try {
+    const raw = fs.readFileSync(getFbConfigPath(), 'utf-8');
+    const cfg = JSON.parse(raw);
+
+    // Old shape migration (lazy — triggered on first read)
+    if (_isOldFbConfigShape(cfg)) {
+      console.log('[fb-config] detected old single-page shape — migrating');
+      return migrateFbConfig(cfg);
+    }
+
+    // New multi-page shape — decrypt each token
+    if (Array.isArray(cfg.pages)) {
+      for (const page of cfg.pages) {
+        if (page.pageAccessToken) {
+          const result = _decryptToken(page.pageAccessToken);
+          page.pageAccessToken = result.value;
+          if (result.error) page.tokenError = result.error;
+        }
+      }
+    }
+    if (Array.isArray(cfg.tokens)) {
+      for (const tok of cfg.tokens) {
+        if (tok.userToken) {
+          const result = _decryptToken(tok.userToken);
+          tok.userToken = result.value;
+          if (result.error) tok.tokenError = result.error;
+        }
+      }
+    }
+
+    return cfg;
+  } catch { return null; }
+}
+
+function writeFbConfig(cfg) {
+  // Deep-clone to avoid mutating the caller's object
+  const toWrite = JSON.parse(JSON.stringify(cfg));
+
+  // Encrypt page access tokens
+  if (Array.isArray(toWrite.pages)) {
+    for (const page of toWrite.pages) {
+      if (page.pageAccessToken) {
+        page.pageAccessToken = _encryptToken(page.pageAccessToken);
+      }
+    }
+  }
+
+  // Encrypt user tokens (skip null — legacy tokens don't have a user token)
+  if (Array.isArray(toWrite.tokens)) {
+    for (const tok of toWrite.tokens) {
+      if (tok.userToken) {
+        tok.userToken = _encryptToken(tok.userToken);
+      }
+    }
+  }
+
+  const serialized = JSON.stringify(toWrite, null, 2) + '\n';
+  const configPath = getFbConfigPath();
+
+  // Byte-equal comparison — skip write if identical (same pattern as
+  // writeOpenClawConfigIfChanged in config.js)
+  if (fs.existsSync(configPath)) {
+    try {
+      let existing = fs.readFileSync(configPath, 'utf-8');
+      if (existing.charCodeAt(0) === 0xFEFF) existing = existing.slice(1);
+      if (existing === serialized) return;
+      if (existing + '\n' === serialized) return;
+      const existingNorm = existing.replace(/\n+$/, '');
+      const serializedNorm = serialized.replace(/\n+$/, '');
+      if (existingNorm === serializedNorm) return;
+    } catch {}
+  }
+
+  fs.writeFileSync(configPath, serialized, 'utf-8');
+}
+
+// ─── AiVideoAuto Config ─────────────────────────────────────────
+// Mirrors the fb-config safeStorage pattern: token encrypted at rest via
+// _encryptToken/_decryptToken (DPAPI on Windows, Keychain on Mac).
+// File: workspace/aivideoauto-config.json  {token (encrypted), domain, connectedAt, userName}
+
+function getAiVideoAutoConfigPath() { return path.join(getWorkspace(), 'aivideoauto-config.json'); }
+
+function readAiVideoAutoConfig() {
+  try {
+    const raw = fs.readFileSync(getAiVideoAutoConfigPath(), 'utf-8');
+    const cfg = JSON.parse(raw);
+    if (cfg.token) {
+      const result = _decryptToken(cfg.token);
+      cfg.token = result.value;
+      if (result.error) cfg.tokenError = result.error;
+    }
+    return cfg;
+  } catch { return null; }
+}
+
+function writeAiVideoAutoConfig(cfg) {
+  // Deep-clone so we never mutate the caller's object
+  const toWrite = JSON.parse(JSON.stringify(cfg));
+  if (toWrite.token) {
+    toWrite.token = _encryptToken(toWrite.token);
+  }
+  const serialized = JSON.stringify(toWrite, null, 2) + '\n';
+  const configPath = getAiVideoAutoConfigPath();
+
+  // Byte-equal comparison — skip write if identical (mirrors writeFbConfig)
+  if (fs.existsSync(configPath)) {
+    try {
+      let existing = fs.readFileSync(configPath, 'utf-8');
+      if (existing.charCodeAt(0) === 0xFEFF) existing = existing.slice(1);
+      if (existing === serialized) return;
+      if (existing + '\n' === serialized) return;
+      const existingNorm = existing.replace(/\n+$/, '');
+      const serializedNorm = serialized.replace(/\n+$/, '');
+      if (existingNorm === serializedNorm) return;
+    } catch {}
+  }
+
+  fs.writeFileSync(configPath, serialized, 'utf-8');
+}
+
+// ─── Page lookup helpers ───────────────────────────────────────
+function getFbPageById(config, pageRef) {
+  if (!config || !config.pages) return null;
+  // Accept EITHER the internal id (page_xxx, used by the dashboard) OR the FB
+  // pageId (numeric, used by every /api/fb/* caller + AGENTS.md Bước 0). The two
+  // formats never collide, so matching both is safe and avoids the "FB page not
+  // found: <pageId>" failure when the agent (correctly) passes the FB pageId.
+  const ref = String(pageRef);
+  return config.pages.find(p => p.id === ref || String(p.pageId) === ref) || null;
+}
+
+function getFbPageToken(config, pageInternalId) {
+  const page = getFbPageById(config, pageInternalId);
+  if (!page) throw new Error(`FB page not found: ${pageInternalId}`);
+  if (!page.enabled) throw new Error(`FB page disabled: ${page.pageName}`);
+  if (!page.pageAccessToken) throw new Error(`FB page token missing: ${page.pageName}`);
+  return { pageId: page.pageId, token: page.pageAccessToken, pageName: page.pageName };
+}
+
+function getTokenById(config, tokenId) {
+  if (!config || !config.tokens) return null;
+  return config.tokens.find(t => t.id === tokenId) || null;
+}
+
+// ─── Facebook Ads Config ────────────────────────────────────────
+// Separate file from fb-config.json: the ads token is a different grant
+// (ads_management/ads_read on the CEO's OWN ad account) and is bring-your-own —
+// one token, no App Review. Stored encrypted at rest like the page tokens.
+// Shape: { systemUserToken(enc), adAccountId:"act_<id>", currency, accountName,
+//          tokenKind:"system_user"|"user", connectedAt }.
+
+function getFbAdsConfigPath() { return path.join(getWorkspace(), 'fb-ads-config.json'); }
+
+function readFbAdsConfig() {
+  try {
+    const raw = fs.readFileSync(getFbAdsConfigPath(), 'utf-8');
+    const cfg = JSON.parse(raw);
+    if (cfg && cfg.systemUserToken) {
+      const result = _decryptToken(cfg.systemUserToken);
+      cfg.systemUserToken = result.value;
+      if (result.error) cfg.tokenError = result.error;
+    }
+    return cfg;
+  } catch { return null; }
+}
+
+function writeFbAdsConfig(cfg) {
+  const toWrite = JSON.parse(JSON.stringify(cfg));
+  if (toWrite.systemUserToken) {
+    toWrite.systemUserToken = _encryptToken(toWrite.systemUserToken);
+  }
+  const serialized = JSON.stringify(toWrite, null, 2) + '\n';
+  const configPath = getFbAdsConfigPath();
+
+  // Byte-equal write-skip (same pattern as writeFbConfig) — a no-op write must
+  // not rewrite the file, so an unchanged token never re-encrypts to new bytes
+  // and triggers needless disk churn / backup diffs.
+  if (fs.existsSync(configPath)) {
+    try {
+      let existing = fs.readFileSync(configPath, 'utf-8');
+      if (existing.charCodeAt(0) === 0xFEFF) existing = existing.slice(1);
+      if (existing === serialized) return;
+      if (existing + '\n' === serialized) return;
+      if (existing.replace(/\n+$/, '') === serialized.replace(/\n+$/, '')) return;
+    } catch {}
+  }
+
+  fs.writeFileSync(configPath, serialized, 'utf-8');
+}
+
+
 // Seed templates from read-only bundle → writable workspace (packaged install)
 // In dev mode (ctx.resourceDir writable), this just ensures runtime files exist.
 // Resolve where workspace template files live for the CURRENT runtime mode.
@@ -1171,6 +1518,19 @@ module.exports = {
   purgeAgentSessions,
   getBrandAssetsDir,
   getMediaAssetsDir,
+  generateFbId,
+  getFbConfigPath,
+  readFbConfig,
+  writeFbConfig,
+  getAiVideoAutoConfigPath,
+  readAiVideoAutoConfig,
+  writeAiVideoAutoConfig,
+  getFbPageById,
+  getFbPageToken,
+  getTokenById,
+  getFbAdsConfigPath,
+  readFbAdsConfig,
+  writeFbAdsConfig,
   getSetupCompletePath,
   hasCompletedOnboarding,
   markOnboardingComplete,

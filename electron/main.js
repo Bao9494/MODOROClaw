@@ -1018,6 +1018,20 @@ app.whenReady().then(async () => {
   setTimeout(() => {
     backfillDocumentChunks().catch(e => console.error('[knowledge] chunk backfill error:', e.message));
   }, 10000);
+  // Brain tab: build knowledge graph after boot, then refresh periodically.
+  setTimeout(() => {
+    try {
+      const { buildBrainGraph } = require('./lib/brain-graph');
+      const ws = require('./lib/workspace').getWorkspace();
+      if (ws) {
+        buildBrainGraph(ws).then(() => {
+          console.log('[brain] initial graph built');
+          try { ctx.mainWindow?.webContents?.send('brain-graph-rebuilt'); } catch {}
+        }).catch(e => console.warn('[brain] initial build error:', e?.message));
+        setInterval(() => { buildBrainGraph(ws).catch(e => console.warn('[brain] rebuild error:', e?.message)); }, 30 * 60 * 1000);
+      }
+    } catch (e) { console.warn('[brain] setup error:', e?.message); }
+  }, 15000);
   // H7: verify embedder model SHA early so tamper alert surfaces fast.
   setTimeout(() => {
     verifyEmbedderModelSha().catch(e => console.warn('[embedder-sha] boot:', e?.message));
@@ -1098,6 +1112,7 @@ function _beforeQuitCleanup() {
   try { killPort(18789); } catch {}
   try { killAllOpenClawProcesses(); } catch {}
   try { cleanupOrphanZaloListener(); } catch {}
+  try { const googleApi = require('./lib/google-api'); googleApi.cleanupGogProcesses(); } catch (e2) { console.warn('[before-quit] cleanupGogProcesses:', e2?.message); }
   try { stop9Router(); } catch (e2) { console.warn('[before-quit] stop9Router:', e2?.message); }
 }
 

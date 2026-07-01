@@ -2,9 +2,9 @@
 
 Counts
 - apiRoutes: 83
-- ipcHandlers: 151
-- preloadBridges: 144
-- dashboardPages: 12
+- ipcHandlers: 233
+- preloadBridges: 226
+- dashboardPages: 21
 - capabilityContracts: 2
 
 Capability Contracts
@@ -98,9 +98,16 @@ API Routes
 
 Dashboard Pages
 - 9router
+- aivideoauto
+- brain
 - calendar
+- chat
+- facebook
+- google
 - image-assets
 - knowledge
+- lark
+- modoro-ai
 - openclaw
 - overview
 - persona-mix
@@ -108,26 +115,28 @@ Dashboard Pages
 - shop-state
 - skills
 - telegram
+- whatsapp
 - zalo
+- zalo-behavior
 
 Large Source Files
-- electron/ui/dashboard.html: 505302 bytes
-- electron/lib/dashboard-ipc.js: 256279 bytes
+- electron/ui/dashboard.html: 783498 bytes
+- electron/lib/dashboard-ipc.js: 319497 bytes
 - electron/lib/license.js: 187389 bytes
 - electron/lib/cron-api.js: 168802 bytes
 - electron/lib/cron.js: 131438 bytes
 - electron/ui/wizard.html: 117791 bytes
 - electron/lib/knowledge.js: 96863 bytes
 - electron/lib/channels.js: 94957 bytes
+- electron/lib/fb-schedule.js: 94418 bytes
 - electron/lib/gateway.js: 84305 bytes
 - electron/lib/runtime-installer.js: 75692 bytes
 - electron/ui/preview-telegram-redesign.html: 66621 bytes
+- electron/lib/workspace.js: 65863 bytes
+- electron/lib/google-api.js: 65108 bytes
 - electron/lib/config.js: 61589 bytes
-- electron/lib/workspace.js: 52742 bytes
+- electron/lib/fb-publisher.js: 57530 bytes
 - electron/lib/vendor-patches.js: 50077 bytes
 - electron/lib/nine-router.js: 47402 bytes
+- electron/lib/google-routes.js: 45145 bytes
 - electron/lib/skill-manager.js: 45003 bytes
-- electron/lib/zalo-plugin.js: 43403 bytes
-- electron/lib/boot.js: 37246 bytes
-- electron/lib/ceo-memory.js: 36541 bytes
-- electron/lib/media-library.js: 31821 bytes

@@ -18,7 +18,8 @@ const zaloMenu = require('./zalo-menu');
 const {
   getWorkspace, invalidateWorkspaceCache, getWorkspaceTemplateRoot,
   getOpenclawAgentWorkspace, seedWorkspace, purgeAgentSessions,
-  getBrandAssetsDir,
+  getBrandAssetsDir, getFbConfigPath, readFbConfig, writeFbConfig, generateFbId,
+  readFbAdsConfig, writeFbAdsConfig, getFbAdsConfigPath,
   getSetupCompletePath, hasCompletedOnboarding, markOnboardingComplete,
   isOpenClawConfigured, getAppPrefsPath, loadAppPrefs, saveAppPrefs,
   auditLog, backupWorkspace,
@@ -99,7 +100,7 @@ const {
 const {
   extractConversationHistoryRaw, extractConversationHistory,
   writeDailyMemoryJournal, appendPerCustomerSummaries, trimZaloMemoryFile,
-  withMemoryFileLock, touchIdleMemoryTimer, setIdleMemoryRunCronAgent,
+  withMemoryFileLock, touchIdleMemoryTimer, startIdleMemoryWatcher,
 } = require('./conversation');
 const {
   compareVersions, checkForUpdates, downloadUpdate, installDmgUpdate, openGitHubUrl,
@@ -151,7 +152,7 @@ const {
 } = require('./zalo-plugin');
 const {
   compilePersonaMix, syncPersonaToBootstrap,
-  syncShopStateToBootstrap, syncAllBootstrapData,
+  syncShopStateToBootstrap, syncAllBootstrapData, syncProfileToUserMd,
 } = require('./persona');
 const {
   processEscalationQueue, startEscalationChecker,
@@ -203,6 +204,12 @@ const {
   getAgentFlagProfile, getAgentCliHealthy,
 } = require('./cron');
 const { startCronApi, getCronApiToken, getCronApiPort } = require('./cron-api');
+const { startOnboardingNudgeTimer, resetOnboardingState, getOnboardingStatus, dismissOnboarding, advanceOnboardingDay } = require('./onboarding-nudge');
+const { registerChatIpc } = require('./chat');
+
+// ============================================
+//  GOOGLE CALENDAR
+// ============================================
 
 
 // ── Module-level state (used across IPC handlers) ──
@@ -221,6 +228,7 @@ function startRuntimeSidecars(source) {
   try { watchCustomCrons(); } catch (e) { console.error(prefix, 'watchCustomCrons error:', e?.message || e); }
   try { startZaloCacheAutoRefresh(); } catch (e) { console.error(prefix, 'startZaloCacheAutoRefresh error:', e?.message || e); }
   try { startAppointmentDispatcher(); } catch (e) { console.error(prefix, 'startAppointmentDispatcher error:', e?.message || e); }
+  try { startOnboardingNudgeTimer(); } catch (e) { console.error(prefix, 'startOnboardingNudgeTimer error:', e?.message || e); }
 }
 
 // v2.4.10 fix: fs.watch on Zalo config files so Dashboard auto-refreshes when
@@ -303,10 +311,195 @@ function startZaloConfigWatcher() {
   }
 }
 
+// ─── MODORO AI provider setup + boot-time endpoint auto-heal ───────────────────
+//     At module scope so ensureModoroEndpoint can be exported; the modoro:setup IPC
+//     handler stays inside registerAllIpcHandlers and calls setupModoroProvider.
+// MODORO AI brain endpoint. When this URL changes (e.g. tunnel migration), list the
+// retired URL(s) in MODORO_AI_OLD_BASE_URLS so ensureModoroEndpoint() can find and
+// repoint an existing install's node at boot — the CEO never re-pastes the key.
+const MODORO_AI_BASE_URL = 'https://models.9bizclaw.com/v1';
+const MODORO_AI_OLD_BASE_URLS = ['https://rd5utqj.abc-tunnel.us/v1'];
+const MODORO_AI_PROVIDER_NAME = 'MODORO AI';
+const MODORO_AI_PREFIX = 'Modoro';            // custom-node prefix → combos reference Modoro/<model>
+// Combo model chain (replicates the working machine): primary cx/gpt-5.4, fallback cx/gpt-5.5 — both via the Modoro node.
+const MODORO_AI_COMBO_MODELS = ['Modoro/cx/gpt-5.4', 'Modoro/cx/gpt-5.5'];
+
+// Create/repoint the MODORO AI provider node in 9Router and wire combos main+zalo to
+// it. Extracted from the modoro:setup IPC handler so boot-time auto-heal can reuse the
+// EXACT same proven path (no copy-paste drift). Returns the same result shape.
+async function setupModoroProvider(apiKey) {
+  const key = String(apiKey || '').trim();
+  if (key.length < 12) return { success: false, error: 'API key chưa đúng — kiểm tra lại đã dán đủ chưa.' };
+  try {
+    // 1. Ensure 9router is up
+    if (!getRouterProcess()) start9Router();
+    let ready = await waitFor9RouterReady(15000);
+    if (!ready) {
+      const ping = await nineRouterApi('GET', '/api/settings', null, 1500);
+      if (ping.statusCode && ping.statusCode >= 500) {
+        const fixed = await autoFix9RouterSqlite();
+        if (fixed) { stop9Router(); await new Promise(r => setTimeout(r, 2500)); start9Router(); ready = await waitFor9RouterReady(30000); }
+      }
+    }
+    if (!ready) return { success: false, error: '9router chưa khởi động được. Đóng/mở lại app rồi thử lại.' };
+
+    // 2. Custom endpoints (openai-compatible) are 9router "provider NODES", NOT
+    //    /api/providers connections (that endpoint only accepts built-in provider types
+    //    and returns "Invalid provider"). Remove any previous Modoro node (dedupe re-runs).
+    const nodeBody = { name: MODORO_AI_PROVIDER_NAME, prefix: MODORO_AI_PREFIX, baseUrl: MODORO_AI_BASE_URL, type: 'openai-compatible', apiType: 'chat', apiKey: key };
+    const _knownUrls = [MODORO_AI_BASE_URL, ...MODORO_AI_OLD_BASE_URLS].map(u => u.replace(/\/+$/, ''));
+    const listRes = await nineRouterApi('GET', '/api/provider-nodes');
+    if (listRes.success) {
+      const dupes = (listRes.data?.nodes || []).filter(n =>
+        n.prefix === MODORO_AI_PREFIX || n.name === MODORO_AI_PROVIDER_NAME ||
+        _knownUrls.includes(String(n.baseUrl || '').replace(/\/+$/, '')));
+      for (const old of dupes) { try { await nineRouterApi('DELETE', `/api/provider-nodes/${old.id}`); } catch {} }
+    }
+    // Also remove any stale MODORO credential connection (re-run safety).
+    try {
+      const connList = await nineRouterApi('GET', '/api/providers');
+      const cdupes = (connList.data?.connections || []).filter(c =>
+        c.name === MODORO_AI_PROVIDER_NAME ||
+        _knownUrls.includes(String(c.providerSpecificData?.baseUrl || '').replace(/\/+$/, '')));
+      for (const old of cdupes) { try { await nineRouterApi('DELETE', `/api/providers/${old.id}`); } catch {} }
+    } catch {}
+
+    // 3. Validate the key against the tunnel first (fast-fail on a bad key)
+    try {
+      const valRes = await nineRouterApi('POST', '/api/provider-nodes/validate', nodeBody, 12000);
+      const valErr = String(valRes.data?.error || valRes.error || '');
+      const valid = valRes.success && valRes.data?.valid !== false;
+      const transient = /^HTTP\s*5\d{2}$/.test(valErr) || /ECONNRESET|EPIPE|socket hang up|ETIMEDOUT|network/i.test(valErr);
+      if (!valid && !transient && /401|403|unauthor|invalid.*key|forbidden/i.test(valErr)) {
+        return { success: false, error: 'API key MODORO không hợp lệ (bị từ chối). Kiểm tra lại key anh được cấp.', validationFailed: true };
+      }
+    } catch { /* non-fatal — proceed to create */ }
+
+    // 4. Create the Modoro custom provider node. The key on THIS request only TESTS the
+    //    connection — 9router does NOT persist it as the routing credential.
+    const createRes = await nineRouterApi('POST', '/api/provider-nodes', nodeBody);
+    if (!createRes.success) return { success: false, error: 'Không thêm được MODORO AI: ' + (createRes.error || 'không rõ') };
+    const nodeId = createRes.data?.id || createRes.data?.node?.id || createRes.data?.providerNode?.id;
+    if (!nodeId) return { success: false, error: '9router không trả về node ID cho MODORO AI.' };
+    saveProviderKey('modoro', key); // local backup so a 9router UI wipe can be re-healed
+
+    // 4b. Attach the REAL routing credential: a connection whose `provider` IS the node id
+    //     (verified live — "openai-compatible" alone returns "Invalid provider"). Without this
+    //     the node exists but has no key, so routing through Modoro/* fails.
+    const connRes = await nineRouterApi('POST', '/api/providers', { provider: nodeId, name: MODORO_AI_PROVIDER_NAME, apiKey: key });
+    if (!connRes.success) {
+      try { await nineRouterApi('DELETE', `/api/provider-nodes/${nodeId}`); } catch {}
+      return { success: false, error: 'Không lưu được API key cho MODORO AI: ' + (connRes.error || 'không rõ') };
+    }
+    const connId = connRes.data?.connection?.id || connRes.data?.id || null;
+
+    // 4c. Import the provider's models as ALIASES — replicates the 9router "Import from
+    //     /models" button exactly (so models show in the provider page / model picker without
+    //     a manual Import click). Per model: PUT /api/models/alias {model:"<prefix>/<slug>", alias}.
+    //     Collision-safe: alias = last path segment; if taken (e.g. a local codex already
+    //     registered "gpt-5.5"), fall back to "<prefix>-<segment>"; if both taken, skip.
+    let importedModels = [];
+    try {
+      if (connId) {
+        const existing = (await nineRouterApi('GET', '/api/models/alias', null, 6000)).data?.aliases || {};
+        const m = await nineRouterApi('GET', `/api/providers/${connId}/models`, null, 15000);
+        const slugs = Array.isArray(m.data?.models)
+          ? m.data.models.map(x => (typeof x === 'string' ? x : (x.slug || x.id || x.name))).filter(Boolean)
+          : [];
+        for (const slug of slugs) {
+          const seg = String(slug).split('/').pop();
+          const alias = existing[seg] ? `${MODORO_AI_PREFIX}-${seg}` : seg;
+          if (existing[alias]) continue; // already imported under both names → skip
+          const r = await nineRouterApi('PUT', '/api/models/alias', { model: `${MODORO_AI_PREFIX}/${slug}`, alias });
+          if (r.success) { existing[alias] = true; importedModels.push(alias); }
+        }
+        console.log('[modoro:setup] imported model aliases:', importedModels.slice(0, 12));
+      }
+    } catch (e) { console.warn('[modoro:setup] model import warning:', e?.message); }
+
+    // 5. Point combos main + zalo at the Modoro models (primary cx/gpt-5.4 + fallback cx/gpt-5.5)
+    const combosRes = await nineRouterApi('GET', '/api/combos');
+    const combos = combosRes.data?.combos || combosRes.data || [];
+    const setCombo = async (name) => {
+      const existing = (Array.isArray(combos) ? combos : []).find(c => c.name === name);
+      if (existing) await nineRouterApi('PUT', `/api/combos/${existing.id}`, { name, models: MODORO_AI_COMBO_MODELS });
+      else await nineRouterApi('POST', '/api/combos', { name, models: MODORO_AI_COMBO_MODELS });
+    };
+    await setCombo('main');
+    await setCombo('zalo');
+    console.log('[modoro:setup] node created + combos main+zalo →', MODORO_AI_COMBO_MODELS.join(', '));
+
+    // 6. Ensure a local 9router API key exists (openclaw.json already references it).
+    //    Capture its value so the wizard can write models.providers.ninerouter.apiKey
+    //    (Dashboard ignores this field — it only reads modelCount).
+    let localApiKey = null;
+    try {
+      const keysRes = await nineRouterApi('GET', '/api/keys');
+      const keys = keysRes.data?.keys || keysRes.data || [];
+      const activeKey = (Array.isArray(keys) ? keys : []).find(k => k.isActive !== false && k.key);
+      if (activeKey) {
+        localApiKey = activeKey.key;
+      } else {
+        const createKey = await nineRouterApi('POST', '/api/keys', { name: '9BizClaw' });
+        localApiKey = createKey.data?.key?.key || createKey.data?.key || null;
+      }
+    } catch {}
+
+    return {
+      success: true,
+      apiKey: localApiKey || undefined,
+      modelCount: importedModels.length || MODORO_AI_COMBO_MODELS.length,
+      models: (importedModels.length ? importedModels : MODORO_AI_COMBO_MODELS).slice(0, 8),
+    };
+  } catch (e) {
+    return { success: false, error: 'Lỗi kết nối MODORO AI: ' + (e?.message || String(e)) };
+  }
+}
+
+// Boot-time auto-heal: when MODORO_AI_BASE_URL changes (tunnel migration), an already
+// connected install still has its 9Router node pointing at the OLD url. On every boot —
+// AFTER 9Router is confirmed ready — check the live nodes; if none points at the NEW
+// url but a node points at an OLD one, re-run setup with the SAVED key so the CEO never
+// re-pastes it. Idempotent: if a node already points at the new url, do nothing.
+async function ensureModoroEndpoint() {
+  try {
+    const newUrl = MODORO_AI_BASE_URL.replace(/\/+$/, '');
+    const oldUrls = MODORO_AI_OLD_BASE_URLS.map(u => u.replace(/\/+$/, ''));
+    const listRes = await nineRouterApi('GET', '/api/provider-nodes', null, 5000);
+    if (!listRes.success) return { skipped: 'list-failed' };
+    const nodes = listRes.data?.nodes || [];
+
+    // Find THIS install's Modoro node (by prefix/name; baseUrl may be old or new).
+    const node = nodes.find(n => n.prefix === MODORO_AI_PREFIX || n.name === MODORO_AI_PROVIDER_NAME)
+      || nodes.find(n => oldUrls.includes(String(n.baseUrl || '').replace(/\/+$/, '')));
+    if (!node) return { skipped: 'no-modoro-node' };             // never connected → leave wizard to set it up
+    if (String(node.baseUrl || '').replace(/\/+$/, '') === newUrl) return { ok: true, alreadyCurrent: true };
+
+    // Update the node's baseUrl IN PLACE (PUT /api/provider-nodes/{id}). This preserves
+    // the node id, its routing-credential connection, model aliases, and combos — unlike
+    // delete+recreate, which would briefly leave the customer with NO brain node if the
+    // recreate failed. 9Router's PUT reads {name, prefix, apiType, baseUrl} and does NOT
+    // touch the stored apiKey (verified against the bundled provider-nodes/[id] route).
+    const body = {
+      name: node.name || MODORO_AI_PROVIDER_NAME,
+      prefix: node.prefix || MODORO_AI_PREFIX,
+      apiType: node.apiType || 'chat',
+      baseUrl: MODORO_AI_BASE_URL,
+    };
+    console.log('[modoro] repointing existing node', node.id, '→', newUrl, '(in-place, key preserved)');
+    const r = await nineRouterApi('PUT', `/api/provider-nodes/${node.id}`, body, 12000);
+    if (r.success) { console.log('[modoro] endpoint repointed in place →', newUrl); return { ok: true, repointed: true }; }
+    console.warn('[modoro] in-place repoint failed:', r.error || r.statusCode);
+    return { ok: false, error: r.error || `HTTP ${r.statusCode}` };
+  } catch (e) { console.warn('[modoro] ensureModoroEndpoint error:', e?.message); return { error: e?.message }; }
+}
+
 function registerAllIpcHandlers() {
 
-// Wire idle memory extraction — uses runCronViaSessionOrFallback for reliable delivery
-try { setIdleMemoryRunCronAgent(runCronViaSessionOrFallback); } catch {}
+registerChatIpc();
+// Start the periodic memory-extraction watcher (replaces the old re-armable
+// timeout that never fired on an active bot — see conversation.js for details).
+try { startIdleMemoryWatcher(); } catch (e) { console.warn('[idle-memory] watcher init error:', e?.message); }
 // Start auto-refresh watcher (idempotent: gated by ctx.mainWindow availability).
 try { startZaloConfigWatcher(); } catch (e) { console.warn('[zalo-watcher] init error:', e?.message); }
 
@@ -432,15 +625,18 @@ ipcMain.handle('setup-9router-auto', async (_event, opts = {}) => {
       console.log('[setup-9router-auto] found codex provider:', codexConn.id, codexConn.name || codexConn.provider);
 
       const picked = 'cx/gpt-5.4';
+      // Main combo carries BOTH models so the agent falls back to gpt-5.5 when 5.4
+      // is unavailable/rate-limited (CEO asked for 5.5 in the combo, not just 5.4).
+      const comboModels = ['cx/gpt-5.4', 'cx/gpt-5.5'];
       const combosRes = await nineRouterApi('GET', '/api/combos');
       const combos = combosRes.data?.combos || combosRes.data || [];
       let mainCombo = (Array.isArray(combos) ? combos : []).find(c => c.name === 'main');
       if (mainCombo) {
-        await nineRouterApi('PUT', `/api/combos/${mainCombo.id}`, { name: 'main', models: [picked] });
+        await nineRouterApi('PUT', `/api/combos/${mainCombo.id}`, { name: 'main', models: comboModels });
       } else {
-        await nineRouterApi('POST', '/api/combos', { name: 'main', models: [picked] });
+        await nineRouterApi('POST', '/api/combos', { name: 'main', models: comboModels });
       }
-      console.log('[setup-9router-auto] combo "main" set to:', picked);
+      console.log('[setup-9router-auto] combo "main" set to:', comboModels.join(', '));
 
       const keysRes = await nineRouterApi('GET', '/api/keys');
       const keys = keysRes.data?.keys || keysRes.data || [];
@@ -1650,6 +1846,24 @@ function _mergeUserSettingsFile(userSettings) {
   }
 }
 
+// Merge CEO group-mode settings into the on-disk `existing` map (mutated in place).
+// An entry carrying only `internal` (no explicit mode) inherits __default.mode instead
+// of being dropped — otherwise marking a default-mode group "Nội bộ" is silently lost
+// (2026-06 bug). Shared by both group-settings save paths so the fix can't drift.
+function _mergeGroupSettingsIntoExisting(groupSettings, existing) {
+  const dflt = (groupSettings.__default && ['off', 'mention', 'all'].includes(groupSettings.__default.mode))
+    ? groupSettings.__default.mode
+    : ((existing.__default && existing.__default.mode) || 'off');
+  for (const [gid, gs] of Object.entries(groupSettings)) {
+    if (!gs || typeof gs !== 'object') continue;
+    const validMode = ['off', 'mention', 'all'].includes(gs.mode);
+    if (!validMode && gs.internal !== true) continue; // empty/garbage entry
+    const sanitized = { mode: validMode ? gs.mode : dflt };
+    if (gs.internal === true) sanitized.internal = true;
+    existing[gid] = sanitized;
+  }
+}
+
 function saveZaloRealtimeManagerFiles({ userBlocklist, userBlocklistTouched, userAllowlist, userAllowlistTouched, groupSettings, userSettings, strangerPolicy }) {
   const bp = getZaloBlocklistPath();
   let existingBl = [];
@@ -1688,13 +1902,7 @@ function saveZaloRealtimeManagerFiles({ userBlocklist, userBlocklistTouched, use
     } catch {}
     let oldExisting = {};
     try { oldExisting = JSON.parse(JSON.stringify(existing)); } catch {}
-    for (const [gid, gs] of Object.entries(groupSettings)) {
-      if (!gs || !gs.mode) continue;
-      if (!['off', 'mention', 'all'].includes(gs.mode)) continue;
-      const sanitized = { mode: gs.mode };
-      if (gs.internal === true) sanitized.internal = true;
-      existing[gid] = sanitized;
-    }
+    _mergeGroupSettingsIntoExisting(groupSettings, existing);
     try {
       for (const gid of Object.keys(existing)) {
         const wasInternal = oldExisting[gid]?.internal === true;
@@ -1788,7 +1996,7 @@ ipcMain.handle('save-zalo-manager-config', async (_event, { enabled, groupPolicy
         ctx.ipcInFlightCount--;
       }
     }
-    if (userBlocklistTouched === true || groupSettings || userSettings || strangerPolicy !== undefined) {
+    if (userBlocklistTouched === true || userAllowlistTouched === true || groupSettings || userSettings || strangerPolicy !== undefined) {
       if (enabled !== false && isZaloChannelEnabled() === false) return booting;
       ctx.ipcInFlightCount++;
       try {
@@ -1906,13 +2114,7 @@ ipcMain.handle('save-zalo-manager-config', async (_event, { enabled, groupPolicy
       // Read old file for audit diff before mutating
       let oldExisting = {};
       try { oldExisting = JSON.parse(JSON.stringify(existing)); } catch {}
-      for (const [gid, gs] of Object.entries(groupSettings)) {
-        if (!gs || !gs.mode) continue;
-        if (!['off', 'mention', 'all'].includes(gs.mode)) continue;
-        const sanitized = { mode: gs.mode };
-        if (gs.internal === true) sanitized.internal = true;
-        existing[gid] = sanitized;
-      }
+      _mergeGroupSettingsIntoExisting(groupSettings, existing);
       // Audit log internal flag changes
       try {
         for (const gid of Object.keys(existing)) {
@@ -2000,12 +2202,13 @@ ipcMain.handle('save-zalo-manager-config', async (_event, { enabled, groupPolicy
   }
 });
 
-// Save personalization (industry, tone, pronouns)
-ipcMain.handle('save-personalization', async (_event, { industry, tone, pronouns, ceoTitle, botName, personaMix, selectedPersona }) => {
+// Save personalization (tone, pronouns; `industry` accepted but ignored since 2026-06-07 — generic profile)
+ipcMain.handle('save-personalization', async (_event, { industry, tone, pronouns, ceoTitle, botName, personaMix, selectedPersona, ceoName, companyName }) => {
   try {
-    // Validate inputs
-    const VALID_INDUSTRIES = ['bat-dong-san', 'fnb', 'thuong-mai', 'dich-vu', 'giao-duc', 'cong-nghe', 'san-xuat', 'tong-quat'];
-    if (!VALID_INDUSTRIES.includes(industry)) return { success: false, error: 'Invalid industry' };
+    // Validate inputs. Industry-specific tailoring was removed (2026-06-07):
+    // the bot ships ONE generic profile — vertical/industry skills are
+    // delivered separately on request (every business differs; bundling them
+    // caused confusion). The `industry` arg is accepted but ignored.
     const VALID_TONES = ['professional', 'friendly', 'concise'];
     if (!VALID_TONES.includes(tone)) tone = 'friendly';
     const VALID_PRONOUNS = ['em-anh-chi', 'toi-quy-khach', 'minh-ban'];
@@ -2022,46 +2225,11 @@ ipcMain.handle('save-personalization', async (_event, { industry, tone, pronouns
       console.error('[save-personalization] empty ceoTitle — refusing to write IDENTITY.md');
       return { success: false, error: 'ceoTitle bắt buộc — vui lòng nhập "Trợ lý gọi bạn là" trong wizard' };
     }
-    console.log('[save-personalization] industry=' + industry + ' tone=' + tone + ' pronouns=' + pronouns + ' ceoTitle="' + ceoTitle + '" botName="' + botName + '"');
-
-    // Industry name map for display
-    const INDUSTRY_NAMES = {
-      'bat-dong-san': 'Bất động sản',
-      'fnb': 'F&B (Nhà hàng, Quán cà phê)',
-      'thuong-mai': 'Thương mại / Bán lẻ',
-      'dich-vu': 'Dịch vụ (Spa, Salon, Phòng khám)',
-      'giao-duc': 'Giáo dục / Đào tạo',
-      'cong-nghe': 'Công nghệ / IT',
-      'san-xuat': 'Sản xuất',
-      'tong-quat': 'Tổng quát',
-    };
+    console.log('[save-personalization] tone=' + tone + ' pronouns=' + pronouns + ' ceoTitle="' + ceoTitle + '" botName="' + botName + '"');
 
     const ws = getWorkspace();
-    // 1. Copy skill file -> skills/active.md
-    const skillSrc = path.join(ws, 'skills', `${industry}.md`);
-    const skillDst = path.join(ws, 'skills', 'active.md');
-    if (fs.existsSync(skillSrc)) fs.copyFileSync(skillSrc, skillDst);
 
-    // 2. Copy industry workflow -> industry/active.md
-    const indSrc = path.join(ws, 'industry', `${industry}.md`);
-    const indDst = path.join(ws, 'industry', 'active.md');
-    if (fs.existsSync(indSrc)) fs.copyFileSync(indSrc, indDst);
-
-    // 3. Copy SOP templates -> prompts/sop/active.md
-    const sopDir = path.join(ws, 'prompts', 'sop');
-    if (!fs.existsSync(sopDir)) fs.mkdirSync(sopDir, { recursive: true });
-    const sopSrc = path.join(sopDir, `${industry}.md`);
-    const sopDst = path.join(sopDir, 'active.md');
-    if (fs.existsSync(sopSrc)) fs.copyFileSync(sopSrc, sopDst);
-
-    // 4. Copy training guide -> prompts/training/active.md
-    const trainDir = path.join(ws, 'prompts', 'training');
-    if (!fs.existsSync(trainDir)) fs.mkdirSync(trainDir, { recursive: true });
-    const trainSrc = path.join(trainDir, `${industry}.md`);
-    const trainDst = path.join(trainDir, 'active.md');
-    if (fs.existsSync(trainSrc)) fs.copyFileSync(trainSrc, trainDst);
-
-    // 5. Update IDENTITY.md with tone, pronouns, industry
+    // Update IDENTITY.md with tone + pronouns (industry tailoring removed)
     const identityPath = path.join(ws, 'IDENTITY.md');
     if (!fs.existsSync(identityPath)) {
       // seedWorkspace should have created this. If missing, the bot would
@@ -2084,7 +2252,6 @@ ipcMain.handle('save-personalization', async (_event, { industry, tone, pronouns
       };
       const xunghoLine = `- **Cách xưng hô:** ${pronounMap[pronouns] || pronounMap['em-anh-chi']}`;
       const phongcachLine = `- **Phong cách:** ${toneMap[tone] || toneMap['friendly']}`;
-      const nganhLine = `- **Ngành:** ${INDUSTRY_NAMES[industry] || industry}`;
       const before = content;
       // Bot name — replace the "[Tên trợ lý của bạn]" placeholder or update
       // an existing name. If botName is empty, write a sensible default so the
@@ -2093,13 +2260,12 @@ ipcMain.handle('save-personalization', async (_event, { industry, tone, pronouns
       content = content.replace(/- \*\*Tên:\*\* .*/, botNameLine);
       content = content.replace(/- \*\*Cách xưng hô:\*\* .*/, xunghoLine);
       content = content.replace(/- \*\*Phong cách:\*\* .*/, phongcachLine);
-      content = content.replace(/- \*\*Ngành:\*\* .*/, nganhLine);
       if (content === before) {
         // Replace did nothing — IDENTITY.md is missing the expected lines.
         // Append them so bot still gets the right ceoTitle even on a malformed
         // template.
         console.warn('[save-personalization] IDENTITY.md missing expected lines — appending');
-        content = content.trimEnd() + '\n\n' + xunghoLine + '\n' + phongcachLine + '\n' + nganhLine + '\n';
+        content = content.trimEnd() + '\n\n' + xunghoLine + '\n' + phongcachLine + '\n';
       }
       fs.writeFileSync(identityPath, content, 'utf-8');
       // Read back to confirm the write actually persisted (catches silent
@@ -2142,6 +2308,11 @@ ipcMain.handle('save-personalization', async (_event, { industry, tone, pronouns
       console.log('[save-personalization] persona mix saved: voice=' + mix.voice + ' traits=' + (mix.traits || []).length + ' formality=' + mix.formality);
       syncPersonaToBootstrap();
     } catch (e) { console.warn('[save-personalization] persona mix write failed:', e?.message); }
+
+    // Sync the full personalization profile (CEO name, xưng hô, bot name, company)
+    // into USER.md so it holds the complete personalization the bot reads each message.
+    try { syncProfileToUserMd({ ceoName, ceoTitle, botName, company: companyName }); }
+    catch (e) { console.warn('[save-personalization] profile→USER.md sync failed:', e?.message); }
 
     // Delete BOOTSTRAP.md — it's single-use, wizard completion means bot is
     // bootstrapped. Leaving it wastes ~1.5k chars per session-bootstrap read.
@@ -2326,6 +2497,8 @@ ipcMain.handle('save-business-profile', async (_event, payload) => {
         writeJsonAtomic(schedPath, schedules);
         console.log('[save-business-profile] schedules.json updated: morning=' + wStart + ' evening=' + wEnd);
       }
+    } else {
+      console.warn('[save-business-profile] schedules.json unreadable — skipping schedule write to preserve disabled state');
     }
 
     // 3. Write business goals to memory/projects/business-goals.md
@@ -2473,6 +2646,20 @@ ipcMain.handle('save-business-profile', async (_event, payload) => {
   }
 });
 
+// Google Calendar + Gmail integration via `gog-cli`.
+//
+// STATUS (2026-04-07): The `gog-cli` npm package referenced here does NOT
+// currently exist on the public npm registry. Calling this handler used to
+// silently fail in npm install (404), then crash with "command not found"
+// when spawning `gog auth`. On Mac the failure is even louder because
+// `npm install -g` requires write permission to /usr/local/lib/node_modules
+// and pops a permission error.
+//
+// Until a working Google integration is shipped, this handler returns a
+// graceful "not implemented" response so the wizard can show a clear message
+// instead of throwing. The Dashboard's "Google" channel chip stays at
+// `not_configured` (handled by check-all-channels which only looks for
+// ~/.gog/token.json — won't exist).
 // Batch config set (for complex nested objects like model providers)
 // Batch config set — write JSON directly
 ipcMain.handle('set-batch-config', async (_event, ops) => {
@@ -2576,10 +2763,10 @@ ipcMain.handle('add-cron', async (_event, { name, cron, tz, message, channel }) 
       // Map cron name to schedule ID
       if (name && name.toLowerCase().includes('sang') || name && name.toLowerCase().includes('morning')) {
         const s = schedules.find(x => x.id === 'morning');
-        if (s) { s.time = time; s.enabled = true; }
+        if (s) { s.time = time; } // only update time; never re-enable a CEO-disabled default
       } else if (name && name.toLowerCase().includes('toi') || name && name.toLowerCase().includes('evening')) {
         const s = schedules.find(x => x.id === 'evening');
-        if (s) { s.time = time; s.enabled = true; }
+        if (s) { s.time = time; } // only update time; never re-enable a CEO-disabled default
       }
       writeJsonAtomic(getSchedulesPath(), schedules);
       restartCronJobs();
@@ -2787,15 +2974,9 @@ ipcMain.handle('test-cron', async (_event, { type, id }) => {
       const c = customs.find(x => x.id === id);
       if (!c) return { success: false, error: 'Custom cron not found' };
       if (!c.prompt) return { success: false, error: 'Cron không có prompt' };
-      const testOpts = {
-        label: `TEST — ${c.label || c.id}`,
-        zaloTarget: c.zaloTarget,
-        telegramTarget: c.telegramTarget,
-        isOneTime: !!c.oneTimeAt,
-      };
       const ok = !c.prompt.startsWith('exec:')
-        ? await runCronViaSessionOrFallback(c.prompt, testOpts)
-        : await runCronAgentPrompt(c.prompt, testOpts);
+        ? await runCronViaSessionOrFallback(c.prompt, { label: `TEST — ${c.label || c.id}` })
+        : await runCronAgentPrompt(c.prompt, { label: `TEST — ${c.label || c.id}` });
       return { success: ok, sent: ok };
     }
     return { success: false, error: 'Unknown type' };
@@ -3056,6 +3237,7 @@ ipcMain.handle('seed-telegram-conversations', async () => {
     return { success: false, seeded: [], error: e?.message || String(e) };
   }
 });
+
 
 // Manual smoke test: send a real Telegram message to the CEO. The strongest
 // possible proof — if this succeeds the channel is end-to-end working.
@@ -3362,7 +3544,7 @@ ipcMain.handle('list-brand-assets', async () => {
           thumbDataUrl = `data:${mime};base64,${buf.toString('base64')}`;
         }
       } catch {}
-      return { id: asset.id, name: asset.filename, title: asset.title, size: stat.size, thumbDataUrl };
+      return { id: asset.id, name: asset.filename, title: asset.title, size: stat.size, thumbDataUrl, description: asset.description || '', status: asset.status || 'indexed' };
     }).filter(Boolean);
   } catch { return []; }
 });
@@ -3380,12 +3562,18 @@ ipcMain.handle('upload-brand-asset', async (_event, filePath, name) => {
     const dst = path.join(dir, safeName);
     fs.writeFileSync(dst, buf);
     try {
-      mediaLibrary.registerExistingMediaFile(dst, {
+      const asset = mediaLibrary.registerExistingMediaFile(dst, {
         type: 'brand',
         visibility: 'internal',
         source: 'dashboard-brand-upload',
         status: 'indexed',
       });
+      // Fire-and-forget: generate description async so bot can use asset immediately
+      if (asset && asset.id) {
+        mediaLibrary.describeMediaAsset(asset.id).catch(e =>
+          console.warn('[media] brand describe failed:', e?.message)
+        );
+      }
     } catch (e) { console.warn('[media] brand upload register failed:', e.message); }
     return { success: true, name: safeName };
   } catch (e) { return { success: false, error: e.message }; }
@@ -3413,7 +3601,10 @@ ipcMain.handle('pick-brand-asset-file', async () => {
   return result.canceled ? [] : result.filePaths;
 });
 
-ipcMain.handle('list-media-assets', async (_event, filters = {}) => {
+// ─── Premium Onboarding 7 Ngày IPC ────────────────────────────────
+
+// ─── Media Assets ─────────────────────────────────────────────────
+ipcMain.handle('list-media-assets', async (_event, filters) => {
   try {
     mediaLibrary.backfillLegacyBrandAssets();
     // Default audience:'ceo' — the Media tab is the CEO's own Dashboard, so it
@@ -3424,10 +3615,10 @@ ipcMain.handle('list-media-assets', async (_event, filters = {}) => {
   } catch { return []; }
 });
 
-ipcMain.handle('upload-media-asset', async (_event, { filePath, type = 'product', title = '', tags = '', visibility } = {}) => {
+ipcMain.handle('upload-media-asset', async (_event, { filePath, type = 'product', title = '', tags = '', aliases = '', description = '', visibility } = {}) => {
   try {
-    const asset = mediaLibrary.importMediaFile(filePath, { type, title, tags, visibility });
-    if (!asset.description) {
+    const asset = mediaLibrary.importMediaFile(filePath, { type, title, tags, aliases, description, visibility });
+    if (!asset.description || asset.type === 'product') {
       mediaLibrary.describeMediaAsset(asset.id).catch(e => {
         console.warn('[media] async describe failed:', e.message);
       });
@@ -3443,6 +3634,18 @@ ipcMain.handle('describe-media-asset', async (_event, id) => {
   } catch (e) { return { success: false, error: mediaLibrary.localizeMediaError(e) }; }
 });
 
+ipcMain.handle('search-media-assets', async (_event, { query, type = 'product', limit = 10 } = {}) => {
+  try {
+    if (!query || query.trim().length < 2) return [];
+    return mediaLibrary.searchMediaAssets(query.trim(), {
+      type: type && type !== 'brand' ? type : undefined,
+      limit: Math.min(Number(limit) || 10, 20),
+      audience: 'customer',
+      minScore: 2,
+    });
+  } catch (e) { return []; }
+});
+
 ipcMain.handle('delete-media-asset', async (_event, id) => {
   try { return mediaLibrary.deleteMediaAsset(id); }
   catch (e) { return { success: false, error: e.message }; }
@@ -3456,6 +3659,219 @@ ipcMain.handle('pick-media-asset-file', async () => {
     properties: ['openFile', 'multiSelections']
   });
   return result.canceled ? [] : result.filePaths;
+});
+
+// ─── Facebook IPC ────────────────────────────────────────────────
+ipcMain.handle('get-fb-schedules', async () => {
+  try {
+    const fbSched = require('./fb-schedule');
+    return fbSched.loadSchedules();
+  } catch { return []; }
+});
+
+ipcMain.handle('delete-fb-schedule', async (_event, id) => {
+  try {
+    const fbSched = require('./fb-schedule');
+    const schedules = fbSched.loadSchedules();
+    const filtered = schedules.filter(s => s.id !== id);
+    if (filtered.length === schedules.length) return { success: false, error: 'not_found' };
+    fbSched.saveSchedules(filtered);
+    auditLog('fb_schedule_deleted', { id });
+    return { success: true };
+  } catch (e) { return { success: false, error: e.message }; }
+});
+
+ipcMain.handle('toggle-fb-schedule', async (_event, { id, enabled }) => {
+  try {
+    const fbSched = require('./fb-schedule');
+    const schedules = fbSched.loadSchedules();
+    const target = schedules.find(s => s.id === id);
+    if (!target) return { success: false, error: 'not_found' };
+    target.enabled = !!enabled;
+    fbSched.saveSchedules(schedules);
+    auditLog('fb_schedule_toggled', { id, enabled: !!enabled });
+    return { success: true };
+  } catch (e) { return { success: false, error: e.message }; }
+});
+
+ipcMain.handle('get-fb-config', async () => {
+  const cfg = readFbConfig();
+  if (!cfg) return null;
+  const fbPub = require('./fb-publisher');
+  // listPages() returns [{id, pageId, pageName, shortName, enabled, tokenId, tokenStatus}]
+  return { connectedAt: cfg.connectedAt, pages: fbPub.listPages() };
+});
+
+ipcMain.handle('save-fb-config', async (_event, { accessToken }) => {
+  try {
+    const fbPub = require('./fb-publisher');
+    const result = await fbPub.verifyToken(accessToken);
+    if (!result.valid) return { success: false, error: result.error };
+    const verified = result.pages || [];
+    if (!verified.length) return { success: false, error: 'Không tìm thấy Fanpage nào có quyền đăng bài.' };
+
+    // Preserve per-page settings (shortName/enabled) across reconnect. Internal
+    // page ids are deterministic from the Facebook pageId, so re-pasting the same
+    // token re-maps to the same internal ids and keeps the CEO's customizations.
+    const existing = readFbConfig();
+    const prevById = {};
+    if (existing && Array.isArray(existing.pages)) {
+      for (const p of existing.pages) prevById[p.id] = p;
+    }
+
+    const connectedAt = new Date().toISOString();
+    const tokenId = generateFbId('tok', verified.map(p => p.pageId).sort().join(','));
+    const pages = verified.map(v => {
+      const internalId = generateFbId('page', v.pageId);
+      const prev = prevById[internalId] || {};
+      return {
+        id: internalId,
+        tokenId,
+        pageId: v.pageId,
+        pageAccessToken: v.pageToken,
+        pageName: v.pageName,
+        shortName: prev.shortName ?? null,
+        enabled: prev.enabled !== undefined ? prev.enabled : true,
+        connectedAt: prev.connectedAt || connectedAt,
+      };
+    });
+    // Pages that existed before but the new token no longer grants — they vanish
+    // from config, so surface the names to the CEO instead of dropping silently.
+    const newIds = new Set(pages.map(p => p.id));
+    const removed = (existing && Array.isArray(existing.pages) ? existing.pages : [])
+      .filter(p => !newIds.has(p.id))
+      .map(p => p.pageName || p.pageId);
+    const cfg = {
+      tokens: [{
+        id: tokenId,
+        userToken: null,
+        isLegacy: false,
+        pageIds: pages.map(p => p.id),
+        connectedAt,
+      }],
+      pages,
+      connectedAt,
+    };
+    writeFbConfig(cfg);
+    return { success: true, count: pages.length, removed, pages: pages.map(p => ({ id: p.id, pageName: p.pageName })) };
+  } catch (e) { return { success: false, error: e.message }; }
+});
+
+// Toggle a page on/off or set its short name (used by the bot for "post to <shortName>").
+ipcMain.handle('update-fb-page', async (_event, { id, shortName, enabled }) => {
+  try {
+    const cfg = readFbConfig();
+    if (!cfg || !Array.isArray(cfg.pages)) return { success: false, error: 'Chưa kết nối Facebook' };
+    const page = cfg.pages.find(p => p.id === id);
+    if (!page) return { success: false, error: 'Không tìm thấy Fanpage' };
+    if (shortName !== undefined) page.shortName = shortName ? String(shortName).trim() : null;
+    if (enabled !== undefined) page.enabled = !!enabled;
+    writeFbConfig(cfg);
+    return { success: true };
+  } catch (e) { return { success: false, error: e.message }; }
+});
+
+ipcMain.handle('verify-fb-token', async () => {
+  const cfg = readFbConfig();
+  const page = cfg && Array.isArray(cfg.pages) ? cfg.pages.find(p => p.enabled && p.pageAccessToken) : null;
+  if (!page) return { valid: false, error: 'Chưa kết nối Facebook' };
+  const fbPub = require('./fb-publisher');
+  const result = await fbPub.verifyToken(page.pageAccessToken);
+  if (!result.valid) return result;
+  // Strip pageToken from each page before sending to renderer
+  const pages = (result.pages || []).map(({ pageToken, ...rest }) => rest);
+  return { valid: true, pages };
+});
+
+// ─── Facebook Ads (bring-your-own token; the CEO's OWN ad account) ───────────
+// A different grant (ads_management/ads_read) from the page token, stored in a
+// separate encrypted file. The renderer NEVER receives the token back — only the
+// connection status and account metadata. Connect is two steps so the CEO can
+// pick which ad account when the token manages more than one.
+ipcMain.handle('get-fb-ads-config', async () => {
+  const cfg = readFbAdsConfig();
+  if (!cfg || !cfg.systemUserToken) return { connected: false };
+  return {
+    connected: true,
+    tokenError: !!cfg.tokenError,
+    account: { id: cfg.adAccountId, name: cfg.accountName, currency: cfg.currency, minDailyBudget: cfg.minDailyBudget },
+    hasAdsManagement: cfg.hasAdsManagement,
+    tokenKind: cfg.tokenKind,
+    connectedAt: cfg.connectedAt,
+  };
+});
+
+// Step 1: verify a pasted token and list the ad accounts it can manage. Saves
+// nothing — the CEO picks an account, then save-fb-ads-config persists it.
+ipcMain.handle('verify-fb-ads-token', async (_event, { token }) => {
+  try {
+    const adsApi = require('./fb-ads-api');
+    const t = String(token || '').trim();
+    if (!t) return { ok: false, error: 'Chưa nhập token.' };
+    const v = await adsApi.verifyAdsToken(t);
+    if (!v.ok) return { ok: false, error: 'Token không có quyền quảng cáo (cần ads_management hoặc ads_read).' };
+    const accounts = await adsApi.getAdAccounts(t);
+    return { ok: true, userName: v.userName, hasAdsManagement: v.hasAdsManagement, hasAdsRead: v.hasAdsRead, accounts };
+  } catch (e) {
+    if (e._isTokenExpired || e._httpStatus === 401) return { ok: false, error: 'Token hết hạn hoặc sai. Tạo token mới trong Meta.' };
+    return { ok: false, error: e.message };
+  }
+});
+
+// Step 2: persist the chosen account + token (encrypted at rest).
+ipcMain.handle('save-fb-ads-config', async (_event, { token, adAccountId, tokenKind }) => {
+  try {
+    const adsApi = require('./fb-ads-api');
+    const t = String(token || '').trim();
+    const want = String(adAccountId || '').trim();
+    if (!t || !want) return { success: false, error: 'Thiếu token hoặc tài khoản quảng cáo.' };
+    const v = await adsApi.verifyAdsToken(t);
+    if (!v.ok) return { success: false, error: 'Token không có quyền quảng cáo.' };
+    const accounts = await adsApi.getAdAccounts(t);
+    const chosen = accounts.find(a => a.id === adsApi.normalizeActId(want));
+    if (!chosen) return { success: false, error: 'Không tìm thấy tài khoản quảng cáo đã chọn.' };
+    // Allow VND + USD (both have a verified Graph-API offset: đồng ×1, cents ×100); reject
+    // any other currency whose offset is unverified — a wrong offset mis-scales the budget.
+    // Mirrors cron-api.js /api/fb/ads/connect so BOTH connect paths (Telegram + Dashboard)
+    // check, and a currency we can't price can never be persisted whichever UI the CEO uses.
+    const _curErr = require('./fb-ads-policy').unsupportedCurrencyError(chosen.currency);
+    if (_curErr) return { success: false, error: _curErr };
+    writeFbAdsConfig({
+      systemUserToken: t,
+      adAccountId: chosen.id,
+      currency: chosen.currency,
+      accountName: chosen.name,
+      minDailyBudget: chosen.minDailyBudget,
+      hasAdsManagement: v.hasAdsManagement,
+      tokenKind: tokenKind === 'system_user' ? 'system_user' : 'user',
+      connectedAt: new Date().toISOString(),
+    });
+    auditLog('fb_ads_connect', { account: chosen.id, currency: chosen.currency, source: 'dashboard' });
+    return { success: true, account: { id: chosen.id, name: chosen.name, currency: chosen.currency, minDailyBudget: chosen.minDailyBudget }, hasAdsManagement: v.hasAdsManagement };
+  } catch (e) {
+    if (e._isTokenExpired || e._httpStatus === 401) return { success: false, error: 'Token hết hạn hoặc sai.' };
+    if (e._isPermission) return { success: false, error: 'Token thiếu quyền ads_management.' };
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('disconnect-fb-ads', async () => {
+  try { require('fs').unlinkSync(getFbAdsConfigPath()); } catch {}
+  auditLog('fb_ads_disconnect', { source: 'dashboard' });
+  return { success: true };
+});
+
+ipcMain.handle('get-fb-recent-posts', async () => {
+  const cfg = readFbConfig();
+  // Shows the first enabled page's posts — the UI labels which page so the CEO
+  // isn't misled into thinking these are from a different connected fanpage.
+  const page = cfg && Array.isArray(cfg.pages) ? cfg.pages.find(p => p.enabled && p.pageAccessToken) : null;
+  if (!page) return { pageName: null, posts: [] };
+  try {
+    const fbPub = require('./fb-publisher');
+    const posts = await fbPub.getRecentPosts(page.pageId, page.pageAccessToken, 5);
+    return { pageName: page.pageName, posts: posts || [] };
+  } catch { return { pageName: page.pageName, posts: [] }; }
 });
 
 
@@ -4029,6 +4445,110 @@ ipcMain.handle('open-knowledge-folder', async (_event, { category }) => {
   } catch (e) { return { success: false, error: e.message }; }
 });
 
+// ─── Run-on-startup toggle (login item, Win + Mac; XDG autostart on Linux) ───
+// The OS startup state IS the source of truth — the checkbox reads/writes it
+// directly. main.js sets the default ON once on first boot (idempotent marker).
+ipcMain.handle('startup:get', () => {
+  try {
+    if (process.platform === 'linux') return { enabled: require('./linux-autostart').isEnabled() };
+    return { enabled: !!app.getLoginItemSettings().openAtLogin };
+  } catch (e) { return { enabled: false, error: e.message }; }
+});
+ipcMain.handle('startup:set', (_event, { enabled } = {}) => {
+  try {
+    if (process.platform === 'linux') return require('./linux-autostart').setEnabled(!!enabled);
+    app.setLoginItemSettings({ openAtLogin: !!enabled });
+    return { success: true, enabled: !!enabled };
+  } catch (e) { return { success: false, error: e.message }; }
+});
+
+// ─── MODORO AI: one-key turnkey provider setup ──────────────────────
+// The CEO distributes ONE API key per customer. Pasting it here auto-configures the
+// LOCAL 9router to route its combos through MODORO's hosted ChatGPT (an openai-compatible
+// endpoint behind a fixed tunnel) — so the customer needs no ChatGPT account of their own.
+// Flow: create a custom provider NODE (POST /api/provider-nodes, prefix "Modoro") → point
+// the main+zalo combos at Modoro/<model>. Does NOT touch openclaw.json (it already routes
+// ninerouter/main + ninerouter/zalo to the local 9router; combos are a 9router-side concern).
+// NOTE: custom endpoints are NODES, not /api/providers connections (that 400s "Invalid provider").
+
+ipcMain.handle('modoro:setup', async (_event, { apiKey } = {}) => setupModoroProvider(apiKey));
+
+
+// ─── Free models: OpenCode (built-in, no key) ───────────────────────
+// 9router ships a built-in noAuth/passthrough provider `opencode` (alias `oc`,
+// baseUrl https://opencode.ai, x-opencode-client:desktop). Its catalog is
+// live-fetched from opencode.ai/zen/v1/models and exposes "*-free" models that
+// route at zero cost WITHOUT creating any provider connection — verified live:
+// `oc/deepseek-v4-flash-free` and `oc/mimo-v2.5-free` return 200 / cost:"0".
+// So "free" setup is purely combo wiring: point main+zalo at these two and
+// ensure a local 9router API key exists. No provider create, no key paste.
+const FREE_COMBO_MODELS = ['oc/deepseek-v4-flash-free', 'oc/mimo-v2.5-free'];
+
+ipcMain.handle('free:setup', async () => {
+  try {
+    // 1. Ensure 9router is up
+    if (!getRouterProcess()) start9Router();
+    let ready = await waitFor9RouterReady(15000);
+    if (!ready) {
+      const ping = await nineRouterApi('GET', '/api/settings', null, 1500);
+      if (ping.statusCode && ping.statusCode >= 500) {
+        const fixed = await autoFix9RouterSqlite();
+        if (fixed) { stop9Router(); await new Promise(r => setTimeout(r, 2500)); start9Router(); ready = await waitFor9RouterReady(30000); }
+      }
+    }
+    if (!ready) return { success: false, error: '9router chưa khởi động được. Đóng/mở lại app rồi thử lại.' };
+
+    // 2. Point combos main + zalo at the free OpenCode models (no provider connect needed)
+    const combosRes = await nineRouterApi('GET', '/api/combos');
+    const combos = combosRes.data?.combos || combosRes.data || [];
+    const setCombo = async (name) => {
+      const existing = (Array.isArray(combos) ? combos : []).find(c => c.name === name);
+      if (existing) await nineRouterApi('PUT', `/api/combos/${existing.id}`, { name, models: FREE_COMBO_MODELS });
+      else await nineRouterApi('POST', '/api/combos', { name, models: FREE_COMBO_MODELS });
+    };
+    await setCombo('main');
+    await setCombo('zalo');
+    console.log('[free:setup] combos main+zalo →', FREE_COMBO_MODELS.join(', '));
+
+    // 3. Ensure a local 9router API key exists + capture it for the wizard
+    let localApiKey = null;
+    try {
+      const keysRes = await nineRouterApi('GET', '/api/keys');
+      const keys = keysRes.data?.keys || keysRes.data || [];
+      const activeKey = (Array.isArray(keys) ? keys : []).find(k => k.isActive !== false && k.key);
+      if (activeKey) {
+        localApiKey = activeKey.key;
+      } else {
+        const createKey = await nineRouterApi('POST', '/api/keys', { name: '9BizClaw' });
+        localApiKey = createKey.data?.key?.key || createKey.data?.key || null;
+      }
+    } catch {}
+    if (!localApiKey) return { success: false, error: 'Không lấy được khóa 9router nội bộ. Thử lại.' };
+
+    return {
+      success: true,
+      apiKey: localApiKey,
+      modelCount: FREE_COMBO_MODELS.length,
+      models: FREE_COMBO_MODELS.slice(),
+    };
+  } catch (e) {
+    return { success: false, error: 'Lỗi kết nối model miễn phí: ' + (e?.message || String(e)) };
+  }
+});
+
+// Open the AI-generated images folder (brand-assets/generated) in OS file manager.
+// All generated images are kept here forever (no auto-cleanup), so this is the CEO's
+// way to browse / back them up by hand.
+ipcMain.handle('open-generated-folder', async () => {
+  try {
+    const dir = path.join(getBrandAssetsDir(), 'generated');
+    fs.mkdirSync(dir, { recursive: true });
+    const { shell } = require('electron');
+    const err = await shell.openPath(dir);
+    return { success: !err, error: err || undefined };
+  } catch (e) { return { success: false, error: e.message }; }
+});
+
 // Create custom knowledge folder
 ipcMain.handle('create-knowledge-folder', async (_event, { name }) => {
   try {
@@ -4238,6 +4758,7 @@ ipcMain.handle('check-all-channels', async () => {
     telegram: 'not_configured',
     zalo: 'not_configured',
     ai: 'stopped',
+    google: 'not_configured',
     gateway: ctx.botRunning ? 'ok' : 'stopped',
   };
 
@@ -4294,6 +4815,12 @@ ipcMain.handle('check-all-channels', async () => {
     }
   } catch {}
 
+  // 4. Google Workspace — check via gogcli
+  try {
+    const googleApi = require('./google-api');
+    const gs = await googleApi.authStatus();
+    if (gs.connected) r.google = ctx.botRunning ? 'ok' : 'configured';
+  } catch {}
 
   return r;
 });
@@ -4610,6 +5137,7 @@ ipcMain.handle('wizard-complete', async () => {
   // Fresh install: seed workspace files with defaults
   try { seedWorkspace(); } catch (e) { console.error('[wizard-complete seed] error:', e.message); }
   try { markOnboardingComplete('wizard-complete'); } catch {}
+  // Start Premium Onboarding 7-day tracking — reset handled in IIFE below
   // Navigate to dashboard IMMEDIATELY (perf: save up to 3s from credential
   // poll + RAG prefill). Credential poll + cleanup + RAG prefill moved to
   // fire-and-forget IIFE below. Channel status broadcast picks up Zalo state.
@@ -4677,6 +5205,13 @@ ipcMain.handle('wizard-complete', async () => {
         }
       }
     } catch (e) { console.error('[welcome] failed:', e?.message); }
+
+    // Premium onboarding nudge: reset 7-day state + start timer at wizard-complete
+    if (ctx.appIsQuitting) { console.log('[wizard-iife] aborting — app quitting (pre-onboarding-nudge)'); return; }
+    try {
+      resetOnboardingState();  // resets startedAt to now, clears sentDays
+      startOnboardingNudgeTimer();
+    } catch (e) { console.error('[wizard-iife onboarding-nudge] error:', e?.message); }
     } finally { ctx.wizardCompleteInFlight = false; }
   })();
   return { success: true };
@@ -4820,7 +5355,7 @@ ipcMain.handle('install-openclaw', async (event) => {
           require('path').join(__dirname, '..', 'scripts', 'versions.json'), 'utf-8'
         ));
       } catch {
-        return { openclaw: '2026.4.14', openzca: '0.1.57', nineRouter: '0.4.63' };
+        return { openclaw: '2026.4.14', openzca: '0.1.59', nineRouter: '0.5.12' };
       }
     })();
     const PINNED_VERSIONS = [
@@ -4837,7 +5372,7 @@ ipcMain.handle('install-openclaw', async (event) => {
       args = ['install', '-g', '--save-exact', ...PINNED_VERSIONS];
     }
 
-    const proc = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], shell: isWin });
+    const proc = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], shell: isWin, windowsHide: true });
     let output = '';
 
     // Stream ALL output — both stdout and stderr
@@ -4926,6 +5461,12 @@ ipcMain.handle('relaunch', async () => {
 ipcMain.handle('factory-reset', async () => {
   try {
     console.log('[factory-reset] Starting full wipe...');
+    // Layer 2: sacred snapshot BEFORE any wipe — makes factory-reset reversible
+    // SACRED-OK: snapshotSacred copies sacred files to external ~/9BizClaw-SacredBackups before wipe
+    try { await require('./sacred-data').snapshotSacred('factory-reset'); } catch (e) { console.error('[factory-reset] sacred snapshot failed (continuing):', e?.message); }
+    // Suppress the NEXT boot's heal so this deliberate wipe sticks (backups kept
+    // for manual recovery). Sentinel lives outside the workspace, surviving rmSync.
+    try { require('./sacred-data').markHealSuppressed(); } catch (e) { console.error('[factory-reset] markHealSuppressed failed (continuing):', e?.message); }
     // Stop background processes so they don't hold file handles
     try { await stopOpenClaw(); } catch {}
     try { stop9Router(); } catch {}
@@ -5064,10 +5605,10 @@ ipcMain.handle('import-workspace', async () => {
     try { fs.mkdirSync(ws, { recursive: true }); } catch {}
     const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || null;
     const openRes = await dialog.showOpenDialog(win, {
-      title: 'Chọn file export để khôi phục',
+      title: 'Chọn file .tar export để khôi phục',
       properties: ['openFile'],
       filters: [
-        { name: '9BizClaw Backup', extensions: ['9bizclaw-backup', 'tar'] },
+        { name: 'Workspace Tar Export', extensions: ['tar'] },
       ],
     });
     if (openRes.canceled || !openRes.filePaths || openRes.filePaths.length === 0) {
@@ -5145,7 +5686,20 @@ ipcMain.handle('open-external', async (_event, url) => {
       'https://t.me',
       'https://youtube.com',
       'https://www.youtube.com',
+      'https://business.facebook.com',
+      'https://developers.facebook.com',
+      'https://www.facebook.com',
+      'https://facebook.com',
+      'https://console.cloud.google.com',
+      'https://console.developers.google.com',
+      'https://cloud.google.com',
+      'https://developers.google.com',
+      'https://support.google.com',
       'https://github.com',
+      'https://chatgpt.com',
+      'https://drive.google.com',
+      'https://docs.google.com',
+      'https://mail.google.com',
       'http://localhost:20128',
       'http://127.0.0.1:20128',
       'http://127.0.0.1:18789',
@@ -5182,11 +5736,13 @@ ipcMain.handle('get-app-version', async () => {
 });
 
 // ---- License IPC handlers (membership builds only) ----
+
 ipcMain.handle('activate-license', async (_event, { key }) => {
   const license = require('./license');
   try {
     const result = await license.activateLicense(key);
     if (!result.success) return result;
+    // Check if app was already set up (re-activation after expiry)
     const configured = isOpenClawConfigured() && hasCompletedOnboarding();
     return { ...result, configured };
   } catch (e) {
@@ -5208,15 +5764,29 @@ ipcMain.handle('deactivate-license', async () => {
 });
 
 ipcMain.handle('toggle-bot', async () => {
-  if (ctx.botRunning) {
-    await stopOpenClaw();
-  } else {
-    if (ctx.startOpenClawInFlight || ctx.gatewayRestartInFlight) {
-      return { running: false, pending: true };
+  // [rapid-toggle guard FM-04] ONE toggle at a time. The STOP branch used to run UNGUARDED,
+  // so rapid on/off clicks could fire concurrent stopOpenClaw() OR race a stop against an
+  // in-flight start → two openzca listeners / port churn / 409 / EADDRINUSE. The guard now
+  // wraps BOTH branches; a 2nd click while a start OR stop is in flight returns pending.
+  if (ctx.startOpenClawInFlight || ctx.gatewayRestartInFlight) {
+    return { running: ctx.botRunning, pending: true };
+  }
+  ctx.gatewayRestartInFlight = true;
+  try {
+    if (ctx.botRunning) {
+      try { await stopOpenClaw(); } catch (e0) { console.warn('[toggle-bot] stop failed:', e0?.message); }
+    } else {
+      try { startCronApi(); } catch (e) { console.error('[toggle-bot] startCronApi preflight error:', e?.message || e); }
+      // [dual-listener guard] Explicit user start: tear down FIRST, then spawn. stopOpenClaw
+      // kills the port + ALL openzca listeners + clears owner-locks and polls the port free,
+      // so the start below can never adopt an orphan gateway — it always spawns exactly one
+      // fresh listener.
+      try { await stopOpenClaw(); } catch (e1) { console.warn('[toggle-bot] stop failed:', e1?.message); }
+      try { await startOpenClaw(); } catch (e2) { console.warn('[toggle-bot] start failed:', e2?.message); }
+      startRuntimeSidecars('toggle-bot');
     }
-    try { startCronApi(); } catch (e) { console.error('[toggle-bot] startCronApi preflight error:', e?.message || e); }
-    await startOpenClaw();
-    startRuntimeSidecars('toggle-bot');
+  } finally {
+    ctx.gatewayRestartInFlight = false;
   }
   return { running: ctx.botRunning };
 });
@@ -5268,7 +5838,7 @@ ipcMain.handle('download-and-install-update', async () => {
     if (ctx.mainWindow && !ctx.mainWindow.isDestroyed()) {
       ctx.mainWindow.webContents.send('update-download-progress', { received: 0, total: asset.size, percent: 0 });
     }
-    const localPath = await downloadUpdate(asset.url, asset.name, asset.size);
+    const localPath = await downloadUpdate(asset.url, asset.name, asset.size, asset.sha512);
 
     if (platform === 'darwin') {
       // Mac: mount DMG → copy .app → remove quarantine → relaunch
@@ -5296,6 +5866,359 @@ ipcMain.handle('download-and-install-update', async () => {
   }
 });
 
+
+  // --- Google Workspace (via gogcli) ---
+  const googleApi = require('./google-api');
+
+  ipcMain.handle('google-auth-status', async () => {
+    try { return await googleApi.authStatus(); }
+    catch (e) { return { connected: false, error: e.message }; }
+  });
+
+  // --- aivideoauto (Gommo AI — BYO token+domain, encrypted via safeStorage) ---
+  // Boundary: authStatus composition (readConfig + verify) lives HERE, not in the engine.
+  // The engine stays pure — no workspace dependency. Use the SAME selector as the job
+  // path (cron-api _avEngine) so connect/verify validates against the engine that will
+  // actually run jobs: v2 default, AIVIDEOAUTO_ENGINE=legacy to roll back.
+  const _avEngine = () => process.env.AIVIDEOAUTO_ENGINE === 'legacy' ? require('./aivideoauto') : require('./aivideoauto-v2');
+  ipcMain.handle('aivideoauto-verify', async (_ev, { token, domain } = {}) => {
+    try { return await _avEngine().verify({ token, domain }); }
+    catch (e) { return { ok: false, error: e.message }; }
+  });
+  ipcMain.handle('aivideoauto-connect', async (_ev, { token, domain } = {}) => {
+    const { readAiVideoAutoConfig, writeAiVideoAutoConfig } = require('./workspace');
+    try {
+      const r = await _avEngine().verify({ token, domain });
+      // Preserve CEO-declared subscription plans across reconnect (token re-paste).
+      const prev = readAiVideoAutoConfig();
+      const plans = require('./aivideoauto-plans').sanitizeKeys(prev && prev.plans);
+      writeAiVideoAutoConfig({ token, domain, userName: r.userName || null, connectedAt: new Date().toISOString(), plans });
+      return { connected: true, userName: r.userName, credits: r.credits, currency: r.currency, plans };
+    } catch (e) { return { connected: false, error: e.message }; }
+  });
+  ipcMain.handle('aivideoauto-status', async () => {
+    const { readAiVideoAutoConfig } = require('./workspace');
+    try {
+      const cfg = readAiVideoAutoConfig();
+      if (!cfg || !cfg.token) return { connected: false };
+      const plans = require('./aivideoauto-plans').sanitizeKeys(cfg.plans);
+      const r = await _avEngine().verify({ token: cfg.token, domain: cfg.domain });
+      return { connected: true, userName: r.userName, credits: r.credits, currency: r.currency, plans };
+    } catch (e) { return { connected: false, error: e.message }; }
+  });
+  // CEO declares which subscription plan(s) they own (advisory — Gommo still decides
+  // at submit). Stored in aivideoauto-config.json; drives Dashboard display + bot hint.
+  ipcMain.handle('aivideoauto-save-plans', async (_ev, { plans } = {}) => {
+    const { readAiVideoAutoConfig, writeAiVideoAutoConfig } = require('./workspace');
+    try {
+      const cfg = readAiVideoAutoConfig();
+      if (!cfg || !cfg.token) return { ok: false, error: 'Chưa kết nối aivideoauto' };
+      const clean = require('./aivideoauto-plans').sanitizeKeys(plans);
+      writeAiVideoAutoConfig({ ...cfg, plans: clean });
+      return { ok: true, plans: clean };
+    } catch (e) { return { ok: false, error: e.message }; }
+  });
+  ipcMain.handle('aivideoauto-list-plans', async () => {
+    return { plans: require('./aivideoauto-plans').PLANS.map(p => ({ key: p.key, label: p.label, models: p.models })) };
+  });
+  ipcMain.handle('google-health', async () => {
+    try { return await googleApi.serviceHealth(); }
+    catch (e) { return { ok: false, error: e.message }; }
+  });
+
+  ipcMain.handle('google-upload-credentials', async (_ev, filePath) => {
+    try {
+      googleApi.validateOAuthClientSecret(filePath);
+      const configDir = googleApi.getGogConfigDir();
+      fs.mkdirSync(configDir, { recursive: true });
+      const dest = path.join(configDir, 'client_secret.json');
+      fs.copyFileSync(filePath, dest);
+      await googleApi.registerCredentials(dest);
+      return { ok: true };
+    } catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('google-get-auth-url', async (_ev, email) => {
+    try {
+      const url = await googleApi.getAuthUrl(email);
+      return { url };
+    } catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('google-connect', async (_ev, email) => {
+    try {
+      const result = await googleApi.connectAccount(email);
+      return { ok: true, ...result };
+    } catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('google-disconnect', async () => {
+    try { return await googleApi.disconnectAccount(); }
+    catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('google-calendar-events', async (_ev, opts) => {
+    try { return await googleApi.listEvents(opts?.from, opts?.to, opts?.calendarId); }
+    catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('google-calendar-list', async () => {
+    try { return await googleApi.listCalendars(); }
+    catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-calendar-create', async (_ev, opts) => {
+    try {
+      if (!opts?.summary || !opts?.start || !opts?.end) return { error: 'summary, start, end required' };
+      const r = await googleApi.createEvent(opts.summary, opts.start, opts.end, opts.attendees, opts.calendarId);
+      try { auditLog('google_calendar_create', { summary: opts.summary }); } catch {}
+      return r;
+    } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-calendar-update', async (_ev, opts) => {
+    try {
+      if (!opts?.eventId) return { error: 'eventId required' };
+      const hasUpdate = ['summary', 'start', 'end', 'description', 'location', 'attendees']
+        .some(key => opts[key] !== undefined);
+      if (!hasUpdate) return { error: 'at least one update field required' };
+      const r = await googleApi.updateEvent(opts.eventId, opts, opts.calendarId);
+      try { auditLog('google_calendar_update', { eventId: opts.eventId, summary: opts.summary }); } catch {}
+      return r;
+    } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-calendar-delete', async (_ev, opts) => {
+    try {
+      if (!opts?.eventId) return { error: 'eventId required' };
+      const r = await googleApi.deleteEvent(opts.eventId, opts.calendarId);
+      try { auditLog('google_calendar_delete', { eventId: opts.eventId }); } catch {}
+      return r;
+    } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-calendar-freebusy', async (_ev, opts) => {
+    try { return await googleApi.getFreeBusy(opts?.from, opts?.to); }
+    catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-calendar-free-slots', async (_ev, opts) => {
+    try { return await googleApi.getFreeSlots(opts.date, opts.workStart, opts.workEnd, opts.slotMinutes); }
+    catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('google-gmail-inbox', async (_ev, opts) => {
+    try { return await googleApi.listInbox(opts?.max); }
+    catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-gmail-read', async (_ev, opts) => {
+    try { return await googleApi.readEmail(opts.id); }
+    catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-gmail-send', async (_ev, opts) => {
+    try {
+      if (!opts?.to || !opts?.subject || !opts?.body) return { error: 'to, subject, body required' };
+      const r = await googleApi.sendEmail(opts.to, opts.subject, opts.body);
+      try { auditLog('google_gmail_send', { to: opts.to, subject: opts.subject }); } catch {}
+      return r;
+    } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-gmail-reply', async (_ev, opts) => {
+    try {
+      if (!opts?.id || !opts?.body) return { error: 'id, body required' };
+      const r = await googleApi.replyEmail(opts.id, opts.body);
+      try { auditLog('google_gmail_reply', { id: opts.id }); } catch {}
+      return r;
+    } catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('google-drive-list', async (_ev, opts) => {
+    try { return await googleApi.listFiles(opts?.query, opts?.max); }
+    catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-drive-upload', async (_ev, opts) => {
+    try {
+      if (!opts?.filePath) return { error: 'filePath required' };
+      const googleRoutes = require('./google-routes');
+      if (googleRoutes.isHomedirPathSafe && !googleRoutes.isHomedirPathSafe(opts.filePath)) return { error: 'filePath blocked by path validation' };
+      const r = await googleApi.uploadFile(opts.filePath, opts.folderId);
+      try { auditLog('google_drive_upload', { filePath: opts.filePath }); } catch {}
+      return r;
+    } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-drive-download', async (_ev, opts) => {
+    try {
+      if (!opts?.fileId || !opts?.destPath) return { error: 'fileId, destPath required' };
+      const googleRoutes = require('./google-routes');
+      if (googleRoutes.isHomedirPathSafe && !googleRoutes.isHomedirPathSafe(opts.destPath)) return { error: 'destPath blocked by path validation' };
+      const r = await googleApi.downloadFile(opts.fileId, opts.destPath, opts.format);
+      try { auditLog('google_drive_download', { fileId: opts.fileId }); } catch {}
+      return r;
+    } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-drive-share', async (_ev, opts) => {
+    try {
+      if (!opts?.fileId || !opts?.email) return { error: 'fileId, email required' };
+      const r = await googleApi.shareFile(opts.fileId, opts.email, opts.role);
+      try { auditLog('google_drive_share', { fileId: opts.fileId, email: opts.email }); } catch {}
+      return r;
+    } catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('google-docs-list', async (_ev, opts) => {
+    try { return await googleApi.listDocs(opts?.max); }
+    catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-docs-info', async (_ev, opts) => {
+    try {
+      if (!opts?.docId) return { error: 'docId required' };
+      return await googleApi.getDocInfo(opts.docId);
+    } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-docs-read', async (_ev, opts) => {
+    try {
+      if (!opts?.docId) return { error: 'docId required' };
+      return await googleApi.readDoc(opts.docId, opts);
+    } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-docs-create', async (_ev, opts) => {
+    try {
+      if (!opts?.title) return { error: 'title required' };
+      const googleRoutes = require('./google-routes');
+      if (opts.file && googleRoutes.isHomedirPathSafe && !googleRoutes.isHomedirPathSafe(opts.file)) return { error: 'file blocked by path validation' };
+      const r = await googleApi.createDoc(opts.title, opts);
+      try { auditLog('google_docs_create', { title: opts.title }); } catch {}
+      return r;
+    } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-docs-write', async (_ev, opts) => {
+    try {
+      if (!opts?.docId) return { error: 'docId required' };
+      if (opts.text === undefined && !opts.file) return { error: 'text or file required' };
+      const googleRoutes = require('./google-routes');
+      if (opts.file && googleRoutes.isHomedirPathSafe && !googleRoutes.isHomedirPathSafe(opts.file)) return { error: 'file blocked by path validation' };
+      const r = await googleApi.writeDoc(opts.docId, opts);
+      try { auditLog('google_docs_write', { docId: opts.docId }); } catch {}
+      return r;
+    } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-docs-insert', async (_ev, opts) => {
+    try {
+      if (!opts?.docId) return { error: 'docId required' };
+      if (opts.content === undefined && !opts.file) return { error: 'content or file required' };
+      const googleRoutes = require('./google-routes');
+      if (opts.file && googleRoutes.isHomedirPathSafe && !googleRoutes.isHomedirPathSafe(opts.file)) return { error: 'file blocked by path validation' };
+      const r = await googleApi.insertDoc(opts.docId, opts.content, opts);
+      try { auditLog('google_docs_insert', { docId: opts.docId }); } catch {}
+      return r;
+    } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-docs-find-replace', async (_ev, opts) => {
+    try {
+      if (!opts?.docId || !opts?.find) return { error: 'docId and find required' };
+      const googleRoutes = require('./google-routes');
+      if (opts.contentFile && googleRoutes.isHomedirPathSafe && !googleRoutes.isHomedirPathSafe(opts.contentFile)) return { error: 'contentFile blocked by path validation' };
+      const r = await googleApi.findReplaceDoc(opts.docId, opts.find, opts.replace, opts);
+      try { auditLog('google_docs_find_replace', { docId: opts.docId }); } catch {}
+      return r;
+    } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-docs-export', async (_ev, opts) => {
+    try {
+      if (!opts?.docId) return { error: 'docId required' };
+      const googleRoutes = require('./google-routes');
+      if (opts.out && googleRoutes.isHomedirPathSafe && !googleRoutes.isHomedirPathSafe(opts.out)) return { error: 'out blocked by path validation' };
+      return await googleApi.exportDoc(opts.docId, opts);
+    } catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('google-contacts-list', async (_ev, opts) => {
+    try { return await googleApi.listContacts(opts?.query); }
+    catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-contacts-create', async (_ev, opts) => {
+    try {
+      if (!opts?.name) return { error: 'name required' };
+      const r = await googleApi.createContact(opts.name, opts.phone, opts.email);
+      try { auditLog('google_contacts_create', { name: opts.name }); } catch {}
+      return r;
+    } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-tasks-list', async (_ev, opts) => {
+    try { return await googleApi.listTasks(opts?.listId); }
+    catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-tasks-lists', async (_ev, opts) => {
+    try { return await googleApi.listTaskLists(opts?.max); }
+    catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-tasks-create', async (_ev, opts) => {
+    try {
+      if (!opts?.title) return { error: 'title required' };
+      const r = await googleApi.createTask(opts.title, opts.due, opts.listId);
+      try { auditLog('google_tasks_create', { title: opts.title }); } catch {}
+      return r;
+    } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-tasks-complete', async (_ev, opts) => {
+    try {
+      if (!opts?.taskId) return { error: 'taskId required' };
+      const r = await googleApi.completeTask(opts.taskId, opts.listId);
+      try { auditLog('google_tasks_complete', { taskId: opts.taskId }); } catch {}
+      return r;
+    } catch (e) { return { error: e.message }; }
+  });
+
+  ipcMain.handle('google-sheets-metadata', async (_ev, opts) => {
+    try {
+      if (!opts?.spreadsheetId) return { error: 'spreadsheetId required' };
+      return await googleApi.getSheetMetadata(opts.spreadsheetId);
+    } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-sheets-list', async (_ev, opts) => {
+    try { return await googleApi.listSheets(opts?.max); }
+    catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-sheets-get', async (_ev, opts) => {
+    try {
+      if (!opts?.spreadsheetId || !opts?.range) return { error: 'spreadsheetId and range required' };
+      return await googleApi.getSheet(opts.spreadsheetId, opts.range, opts);
+    } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-sheets-update', async (_ev, opts) => {
+    try {
+      if (!opts?.spreadsheetId || !opts?.range) return { error: 'spreadsheetId and range required' };
+      const googleRoutes = require('./google-routes');
+      const parsedValues = googleRoutes.normalizeSheetValues
+        ? googleRoutes.normalizeSheetValues(opts)
+        : { ok: true, values: opts.values };
+      if (parsedValues && !parsedValues.ok) return { error: parsedValues.error };
+      const values = parsedValues ? parsedValues.values : opts.values;
+      const range = googleRoutes.fitSheetRangeToValues
+        ? googleRoutes.fitSheetRangeToValues(opts.range, values)
+        : opts.range;
+      const r = await googleApi.updateSheet(opts.spreadsheetId, range, values, opts);
+      try { auditLog('google_sheets_update', { spreadsheetId: opts.spreadsheetId, range }); } catch {}
+      return r;
+    } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-sheets-append', async (_ev, opts) => {
+    try {
+      if (!opts?.spreadsheetId || !opts?.range) return { error: 'spreadsheetId and range required' };
+      const googleRoutes = require('./google-routes');
+      const parsedValues = googleRoutes.normalizeSheetValues
+        ? googleRoutes.normalizeSheetValues(opts)
+        : { ok: true, values: opts.values };
+      if (parsedValues && !parsedValues.ok) return { error: parsedValues.error };
+      const values = parsedValues ? parsedValues.values : opts.values;
+      const r = await googleApi.appendSheet(opts.spreadsheetId, opts.range, values, opts);
+      try { auditLog('google_sheets_append', { spreadsheetId: opts.spreadsheetId, range: opts.range }); } catch {}
+      return r;
+    } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('google-appscript-run', async (_ev, opts) => {
+    try {
+      if (!opts?.scriptId || !opts?.functionName) return { error: 'scriptId and functionName required' };
+      const r = await googleApi.runAppScript(opts.scriptId, opts.functionName, opts.params, opts.devMode);
+      try { auditLog('google_appscript_run', { scriptId: opts.scriptId, functionName: opts.functionName }); } catch {}
+      return r;
+    } catch (e) { return { error: e.message }; }
+  });
 
   // Compaction IPC handlers — expose compact engine to UI and Telegram agent
   ipcMain.handle('compact-session', async (_ev, opts = {}) => {
@@ -5504,7 +6427,9 @@ ipcMain.handle('download-and-install-update', async () => {
   ipcMain.handle('restore-user-skill', async (_event, id) => {
     try {
       const sm = require('./skill-manager');
-      const entry = await sm.restoreUserSkill(id);
+      // Shipped skills aren't in _trash — "restore" clears the _shipped-state override
+      // (un-disable / un-delete / un-replace). User skills restore from _trash.
+      const entry = sm._isShippedId(id) ? await sm.restoreShippedSkill(id) : await sm.restoreUserSkill(id);
       _broadcastSkillUpdated();
       return entry;
     } catch (e) { throw new Error(e.message); }
@@ -5537,6 +6462,114 @@ ipcMain.handle('download-and-install-update', async () => {
       }
       return { conflicts: layer1, semantic: layer2 };
     } catch (e) { return { conflicts: [], semantic: null, error: e.message }; }
+  });
+
+  // ================================
+  // Zalo Behavior Control — preview-stack + replace-shipped
+  // ================================
+
+  ipcMain.handle('preview-zalo-stack', async (_event, { senderId, threadId, isGroup, text } = {}) => {
+    try {
+      const sm = require('./skill-manager');
+      const stack = sm.previewZaloStack({
+        rawBody: text || '',
+        senderId: senderId || '',
+        threadId: threadId || '',
+        isGroup: !!isGroup,
+      });
+      return { stack };
+    } catch (e) {
+      console.error('[preview-zalo-stack]', e?.message);
+      return { stack: null, error: e?.message };
+    }
+  });
+
+  ipcMain.handle('replace-shipped-skill', async (_event, { shippedId, withUserSkillId } = {}) => {
+    try {
+      const sm = require('./skill-manager');
+      if (!shippedId || !withUserSkillId) throw new Error('shippedId và withUserSkillId là bắt buộc');
+      const r = await sm.replaceShippedSkill(shippedId, withUserSkillId);
+      _broadcastSkillUpdated();
+      return { success: true, ...r };
+    } catch (e) { throw new Error(e.message); }
+  });
+
+  // --- Brain tab (knowledge graph) ---
+  ipcMain.handle('get-brain-graph', async () => {
+    const ws = getWorkspace();
+    if (!ws) return null;
+    try {
+      const fp = path.join(ws, 'brain-graph.json');
+      if (!fs.existsSync(fp)) return null;
+      return JSON.parse(fs.readFileSync(fp, 'utf-8'));
+    } catch (e) { console.warn('[brain] get-brain-graph error:', e.message); return null; }
+  });
+
+  ipcMain.handle('get-brain-node-detail', async (_e, nodeId) => {
+    const ws = getWorkspace();
+    if (!ws || !nodeId) return null;
+    try {
+      let fp = null;
+      if (nodeId.startsWith('user:')) {
+        const segment = nodeId.slice(5);
+        if (!segment || /[\/\\]|\.\./.test(segment)) return null;
+        fp = path.join(ws, 'memory', 'zalo-users', segment + '.md');
+      }
+      else if (nodeId.startsWith('group:')) {
+        const segment = nodeId.slice(6);
+        if (!segment || /[\/\\]|\.\./.test(segment)) return null;
+        fp = path.join(ws, 'memory', 'zalo-groups', segment + '.md');
+      }
+      else if (nodeId.startsWith('doc:')) {
+        const cats = ['cong-ty', 'san-pham', 'nhan-vien', 'framework', 'workflow'];
+        const fname = nodeId.slice(4);
+        if (!fname || /[\/\\]|\.\./.test(fname)) return null;
+        // Files live under files/<public|noi-bo|ceo-only>/ since the v2.4 migration
+        // (brain-graph emits doc:<filename> from those subfolders); '' keeps the
+        // legacy flat layout working. Without the subfolders, every doc-node click
+        // resolves to null on current installs.
+        const subs = ['', 'public', 'noi-bo', 'ceo-only'];
+        outer: for (const cat of cats) {
+          for (const sub of subs) {
+            const candidate = path.join(ws, 'knowledge', cat, 'files', sub, fname);
+            if (fs.existsSync(candidate)) { fp = candidate; break outer; }
+          }
+        }
+      }
+      else if (nodeId.startsWith('learning:')) {
+        const lf = path.join(ws, '.learnings', 'LEARNINGS.md');
+        if (fs.existsSync(lf)) {
+          const content = fs.readFileSync(lf, 'utf-8');
+          const lid = nodeId.slice(9);
+          const re = new RegExp('### \\[\\d{4}-\\d{2}-\\d{2}\\] ID: ' + lid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[\\s\\S]*?(?=### \\[|$)');
+          const match = content.match(re);
+          return match ? { content: match[0].trim(), meta: { type: 'learning' } } : null;
+        }
+        return null;
+      }
+      else if (nodeId.startsWith('skill:')) {
+        const sid = nodeId.slice(6);
+        if (!sid || /[\/\\]|\.\./.test(sid)) return null;
+        const candidates = [path.join(ws, 'user-skills', sid, 'SKILL.md'), path.join(ws, 'user-skills', sid + '.md')];
+        for (const c of candidates) { if (fs.existsSync(c)) { fp = c; break; } }
+      }
+      if (!fp || !fs.existsSync(fp)) return null;
+      return { content: fs.readFileSync(fp, 'utf-8'), meta: { type: nodeId.split(':')[0] } };
+    } catch (e) { console.warn('[brain] get-brain-node-detail error:', e.message); return null; }
+  });
+
+  let _brainBuildInFlight = false;
+  ipcMain.handle('rebuild-brain-graph', async () => {
+    if (_brainBuildInFlight) return { started: false, reason: 'already running' };
+    _brainBuildInFlight = true;
+    try {
+      const { buildBrainGraph } = require('./brain-graph');
+      buildBrainGraph(getWorkspace()).then(() => {
+        _brainBuildInFlight = false;
+        try { ctx.mainWindow?.webContents?.send('brain-graph-rebuilt'); } catch {}
+      }).catch(e => { _brainBuildInFlight = false; console.error('[brain] rebuild error:', e.message); });
+    } catch (e) { _brainBuildInFlight = false; console.error('[brain] rebuild require error:', e.message); }
+    return { started: true };
   });
 
   // === CEO Backup (encrypted .9bizclaw-backup) ===
@@ -5620,8 +6653,145 @@ ipcMain.handle('download-and-install-update', async () => {
     }
   });
 
-  // --- Generic channel IPC ---
+  // ── ChatGPT session import (fallback when OAuth OTP fails) ──
+  ipcMain.handle('import-chatgpt-session', async (_event, { sessionJson }) => {
+    try {
+      let session;
+      try {
+        let raw = sessionJson.replace(/^﻿/, '').trim();
+        const fi = raw.indexOf('{'), li = raw.lastIndexOf('}');
+        if (fi >= 0 && li > fi) raw = raw.substring(fi, li + 1);
+        session = JSON.parse(raw);
+      } catch { return { success: false, error: 'JSON không hợp lệ — hãy copy toàn bộ nội dung từ chatgpt.com/api/auth/session' }; }
+
+      const accessToken = session.accessToken;
+      if (!accessToken || typeof accessToken !== 'string' || accessToken.length < 50) {
+        return { success: false, error: 'Thiếu accessToken — hãy copy toàn bộ nội dung trang, không chỉ một phần' };
+      }
+
+      let jwtPayload = {};
+      try {
+        const parts = accessToken.split('.');
+        if (parts.length === 3) jwtPayload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8'));
+      } catch { /* non-JWT token — proceed without metadata */ }
+
+      const authClaims = jwtPayload['https://api.openai.com/auth'] || {};
+      const profileClaims = jwtPayload['https://api.openai.com/profile'] || {};
+      const email = session.user?.email || profileClaims.email || '';
+      if (!email) return { success: false, error: 'Không tìm thấy email trong session — JSON có thể không đúng định dạng' };
+
+      const planType = authClaims.chatgpt_plan_type || 'unknown';
+      const expiresIn = (jwtPayload.exp && jwtPayload.iat) ? (jwtPayload.exp - jwtPayload.iat) : 864000;
+
+      const entry = {
+        id: require('crypto').randomUUID(),
+        provider: 'codex',
+        authType: 'oauth',
+        name: email,
+        priority: 1,
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        email,
+        accessToken,
+        refreshToken: session.refreshToken || null,
+        expiresAt: session.expires || (jwtPayload.exp ? new Date(jwtPayload.exp * 1000).toISOString() : null),
+        idToken: null,
+        testStatus: 'active',
+        expiresIn,
+        providerSpecificData: {
+          chatgptAccountId: authClaims.chatgpt_account_id || null,
+          chatgptPlanType: planType,
+        },
+        lastUsedAt: null,
+        consecutiveUseCount: 0,
+        lastError: null,
+        errorCode: null,
+        lastErrorAt: null,
+        backoffLevel: 0,
+      };
+
+      // Strategy 0: 9Router v0.4.63 stores providers in SQLite and exposes a
+      // Codex access-token import route. Use it before the older /api/providers
+      // and db.json fallbacks.
+      const importTokenRes = await nineRouterApi('POST', '/api/oauth/codex/import-token', {
+        accessToken,
+        name: email,
+      }, 10000);
+      if (importTokenRes.success) return { success: true, email, planType, method: 'api-import-token' };
+
+      // Strategy 1: POST full entry to 9router API (works on all platforms)
+      const apiRes = await nineRouterApi('POST', '/api/providers', entry, 10000);
+      if (apiRes.success) return { success: true, email, planType, method: 'api' };
+
+      // Strategy 2: POST minimal provider (some 9router versions only accept basic fields)
+      const apiRes2 = await nineRouterApi('POST', '/api/providers', { provider: 'codex', name: email, apiKey: accessToken }, 10000);
+      if (apiRes2.success) return { success: true, email, planType, method: 'api-minimal' };
+
+      // Strategy 3: Direct db.json write (works on Windows, may fail on Mac sandbox)
+      try {
+        const dbPath = path.join(appDataDir(), '9router', 'db.json');
+        fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+        let db = {};
+        if (fs.existsSync(dbPath)) {
+          try { db = JSON.parse(fs.readFileSync(dbPath, 'utf-8')); } catch { db = {}; }
+        }
+        if (!Array.isArray(db.providerConnections)) db.providerConnections = [];
+        if (!Array.isArray(db.combos)) db.combos = [];
+        if (!Array.isArray(db.apiKeys)) db.apiKeys = [];
+        if (!db.settings) db.settings = {};
+        const existingIdx = db.providerConnections.findIndex(p => p.provider === 'codex' && p.email === email);
+        if (existingIdx >= 0) {
+          entry.id = db.providerConnections[existingIdx].id;
+          entry.createdAt = db.providerConnections[existingIdx].createdAt;
+          entry.priority = db.providerConnections[existingIdx].priority;
+          db.providerConnections[existingIdx] = entry;
+        } else {
+          entry.priority = db.providerConnections.reduce((m, p) => Math.max(m, p.priority || 0), 0) + 1;
+          db.providerConnections.push(entry);
+        }
+        fs.writeFileSync(dbPath, JSON.stringify(db, null, 2), 'utf-8');
+        try { stop9Router(); await new Promise(r => setTimeout(r, 1200)); start9Router(); } catch (e) { console.error('[import-chatgpt] 9router restart failed:', e?.message); }
+        return { success: true, email, planType, method: 'file' };
+      } catch (writeErr) {
+        console.error('[import-chatgpt] all 3 strategies failed. API1:', apiRes.error, 'API2:', apiRes2.error, 'File:', writeErr?.message);
+        return { success: false, error: 'Import thất bại. Hãy mở 9Router (tab AI Models), dùng chức năng Import trong 9Router để thêm tài khoản thủ công.' };
+      }
+    } catch (e) {
+      console.error('[import-chatgpt-session]', e);
+      return { success: false, error: 'Không ghi được cấu hình 9router: ' + (e?.message || String(e)) };
+    }
+  });
+
+  // --- Generic channel IPC (WhatsApp, Lark, future channels) ---
   const { getChannel } = require('./channel-registry');
+
+  ipcMain.handle('channel:ready', async (_e, { ch }) => {
+    const def = getChannel(ch);
+    if (!def) return { ready: false, error: 'unknown channel' };
+    try {
+      const { probeChannelReady } = require('./channels');
+      return await probeChannelReady(ch);
+    } catch (e) { return { ready: false, error: e?.message }; }
+  });
+
+  ipcMain.handle('channel:connect', async (_e, { ch }) => {
+    const def = getChannel(ch);
+    if (!def || !def.loginChannel) return { success: false, error: 'channel does not support login' };
+    try {
+      const { connectNewChannel } = require('./channels');
+      return await connectNewChannel(ch);
+    } catch (e) { return { success: false, error: e?.message }; }
+  });
+
+  ipcMain.handle('channel:disconnect', async (_e, { ch }) => {
+    const def = getChannel(ch);
+    if (!def) return { success: false, error: 'unknown channel' };
+    try {
+      const { disconnectChannel } = require('./channels');
+      return await disconnectChannel(ch);
+    } catch (e) { return { success: false, error: e?.message }; }
+  });
 
   ipcMain.handle('channel:config:get', async (_e, { ch }) => {
     try {
@@ -5677,6 +6847,36 @@ ipcMain.handle('download-and-install-update', async () => {
     } catch { return { paused: false }; }
   });
 
+  // ── Premium Onboarding 7 Ngày ─────────────────────────────────────────
+  ipcMain.handle('onboarding:status', async () => {
+    try {
+      return getOnboardingStatus() || { active: false };
+    } catch (e) {
+      console.error('[onboarding:status]', e?.message);
+      return { active: false, error: e?.message };
+    }
+  });
+
+  ipcMain.handle('onboarding:dismiss', async () => {
+    try {
+      dismissOnboarding();
+      return { success: true };
+    } catch (e) {
+      console.error('[onboarding:dismiss]', e?.message);
+      return { success: false, error: e?.message };
+    }
+  });
+
+  ipcMain.handle('onboarding:advance', async () => {
+    try {
+      advanceOnboardingDay();
+      return { success: true };
+    } catch (e) {
+      console.error('[onboarding:advance]', e?.message);
+      return { success: false, error: e?.message };
+    }
+  });
+
 } // end registerAllIpcHandlers
 
-module.exports = { registerAllIpcHandlers };
+module.exports = { registerAllIpcHandlers, ensureModoroEndpoint };

@@ -18,12 +18,22 @@ contextBridge.exposeInMainWorld('claw', {
   getDashboard: () => ipcRenderer.invoke('get-dashboard'),
   getOverviewData: () => ipcRenderer.invoke('get-overview-data'),
   checkAllChannels: () => ipcRenderer.invoke('check-all-channels'),
+  sendChatMessage: (text) => ipcRenderer.invoke('send-chat-message', text),
+  getChatHistory: () => ipcRenderer.invoke('get-chat-history'),
+  clearChatHistory: () => ipcRenderer.invoke('clear-chat-history'),
+  stopChatGeneration: () => ipcRenderer.invoke('stop-chat-generation'),
+  logChatFeedback: (rating, msgTs) => ipcRenderer.invoke('log-chat-feedback', { rating, msgTs }),
+  uploadChatFile: (filePath, fileName) => ipcRenderer.invoke('upload-chat-file', { filePath, fileName }),
+  getFbSchedules: () => ipcRenderer.invoke('get-fb-schedules'),
+  deleteFbSchedule: (id) => ipcRenderer.invoke('delete-fb-schedule', id),
+  toggleFbSchedule: (id, enabled) => ipcRenderer.invoke('toggle-fb-schedule', { id, enabled }),
   getBotStatus: () => ipcRenderer.invoke('get-bot-status'),
   toggleBot: () => ipcRenderer.invoke('toggle-bot'),
 
   // 9Router
   start9Router: () => ipcRenderer.invoke('start-9router'),
   setup9RouterAuto: (opts) => ipcRenderer.invoke('setup-9router-auto', opts),
+  importChatGPTSession: (sessionJson) => ipcRenderer.invoke('import-chatgpt-session', { sessionJson }),
 
   // Zalo
   setupZalo: () => ipcRenderer.invoke('setup-zalo'),
@@ -55,6 +65,7 @@ contextBridge.exposeInMainWorld('claw', {
   savePersonalization: (opts) => ipcRenderer.invoke('save-personalization', opts),
   saveBusinessProfile: (opts) => ipcRenderer.invoke('save-business-profile', opts),
 
+  // Google
   // OpenClaw installation
   installOpenClaw: (onProgress) => {
     ipcRenderer.removeAllListeners('install-progress');
@@ -85,6 +96,12 @@ contextBridge.exposeInMainWorld('claw', {
   },
   testCron: (type, id) => ipcRenderer.invoke('test-cron', { type, id }),
 
+  // Brain tab (knowledge graph)
+  getBrainGraph: () => ipcRenderer.invoke('get-brain-graph'),
+  getBrainNodeDetail: (id) => ipcRenderer.invoke('get-brain-node-detail', id),
+  rebuildBrainGraph: () => ipcRenderer.invoke('rebuild-brain-graph'),
+  onBrainGraphRebuilt: (cb) => { ipcRenderer.removeAllListeners('brain-graph-rebuilt'); ipcRenderer.on('brain-graph-rebuilt', cb); },
+
   // App version
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 
@@ -108,6 +125,11 @@ contextBridge.exposeInMainWorld('claw', {
   deleteKnowledgeFolder: (id) => ipcRenderer.invoke('delete-knowledge-folder', { id }),
   knowledgeSearch: (query, category, limit) => ipcRenderer.invoke('knowledge-search', { query, category, limit }),
   openKnowledgeFolder: (category) => ipcRenderer.invoke('open-knowledge-folder', { category }),
+  openGeneratedFolder: () => ipcRenderer.invoke('open-generated-folder'),
+  modoroSetup: (apiKey) => ipcRenderer.invoke('modoro:setup', { apiKey }),
+  freeSetup: () => ipcRenderer.invoke('free:setup'),
+  getStartupSetting: () => ipcRenderer.invoke('startup:get'),
+  setStartupSetting: (enabled) => ipcRenderer.invoke('startup:set', { enabled }),
   onKnowledgeUpdated: (cb) => { ipcRenderer.removeAllListeners('knowledge-updated'); ipcRenderer.on('knowledge-updated', cb); },
   getRagConfig: () => ipcRenderer.invoke('get-rag-config'),
   setRagConfig: (cfg) => ipcRenderer.invoke('set-rag-config', cfg),
@@ -167,6 +189,54 @@ contextBridge.exposeInMainWorld('claw', {
   deleteAppointment: (id) => ipcRenderer.invoke('delete-appointment', { id }),
   resolveZaloTarget: (query, type) => ipcRenderer.invoke('resolve-zalo-target', { query, type }),
 
+  // Google Workspace
+  googleAuthStatus: () => ipcRenderer.invoke('google-auth-status'),
+  googleHealth: () => ipcRenderer.invoke('google-health'),
+  googleUploadCredentials: (path) => ipcRenderer.invoke('google-upload-credentials', path),
+  googleConnect: (email) => ipcRenderer.invoke('google-connect', email),
+  aivideoautoVerify: (creds) => ipcRenderer.invoke('aivideoauto-verify', creds),
+  aivideoautoConnect: (creds) => ipcRenderer.invoke('aivideoauto-connect', creds),
+  aivideoautoStatus: () => ipcRenderer.invoke('aivideoauto-status'),
+  aivideoautoListPlans: () => ipcRenderer.invoke('aivideoauto-list-plans'),
+  aivideoautoSavePlans: (plans) => ipcRenderer.invoke('aivideoauto-save-plans', { plans }),
+  googleGetAuthUrl: (email) => ipcRenderer.invoke('google-get-auth-url', email),
+  googleDisconnect: () => ipcRenderer.invoke('google-disconnect'),
+  googleCalendarEvents: (opts) => ipcRenderer.invoke('google-calendar-events', opts || {}),
+  googleCalendarList: () => ipcRenderer.invoke('google-calendar-list'),
+  googleCalendarCreate: (opts) => ipcRenderer.invoke('google-calendar-create', opts),
+  googleCalendarUpdate: (opts) => ipcRenderer.invoke('google-calendar-update', opts),
+  googleCalendarDelete: (opts) => ipcRenderer.invoke('google-calendar-delete', opts),
+  googleCalendarFreebusy: (opts) => ipcRenderer.invoke('google-calendar-freebusy', opts || {}),
+  googleCalendarFreeSlots: (opts) => ipcRenderer.invoke('google-calendar-free-slots', opts),
+  googleGmailInbox: (opts) => ipcRenderer.invoke('google-gmail-inbox', opts || {}),
+  googleGmailRead: (opts) => ipcRenderer.invoke('google-gmail-read', opts),
+  googleGmailSend: (opts) => ipcRenderer.invoke('google-gmail-send', opts),
+  googleGmailReply: (opts) => ipcRenderer.invoke('google-gmail-reply', opts),
+  googleDriveList: (opts) => ipcRenderer.invoke('google-drive-list', opts || {}),
+  googleDriveUpload: (opts) => ipcRenderer.invoke('google-drive-upload', opts),
+  googleDriveDownload: (opts) => ipcRenderer.invoke('google-drive-download', opts),
+  googleDriveShare: (opts) => ipcRenderer.invoke('google-drive-share', opts),
+  googleDocsList: (opts) => ipcRenderer.invoke('google-docs-list', opts || {}),
+  googleDocsInfo: (opts) => ipcRenderer.invoke('google-docs-info', opts),
+  googleDocsRead: (opts) => ipcRenderer.invoke('google-docs-read', opts),
+  googleDocsCreate: (opts) => ipcRenderer.invoke('google-docs-create', opts),
+  googleDocsWrite: (opts) => ipcRenderer.invoke('google-docs-write', opts),
+  googleDocsInsert: (opts) => ipcRenderer.invoke('google-docs-insert', opts),
+  googleDocsFindReplace: (opts) => ipcRenderer.invoke('google-docs-find-replace', opts),
+  googleDocsExport: (opts) => ipcRenderer.invoke('google-docs-export', opts),
+  googleContactsList: (opts) => ipcRenderer.invoke('google-contacts-list', opts || {}),
+  googleContactsCreate: (opts) => ipcRenderer.invoke('google-contacts-create', opts),
+  googleTaskLists: (opts) => ipcRenderer.invoke('google-tasks-lists', opts || {}),
+  googleTasksList: (opts) => ipcRenderer.invoke('google-tasks-list', opts || {}),
+  googleTasksCreate: (opts) => ipcRenderer.invoke('google-tasks-create', opts),
+  googleTasksComplete: (opts) => ipcRenderer.invoke('google-tasks-complete', opts),
+  googleSheetsList: (opts) => ipcRenderer.invoke('google-sheets-list', opts || {}),
+  googleSheetsMetadata: (opts) => ipcRenderer.invoke('google-sheets-metadata', opts),
+  googleSheetsGet: (opts) => ipcRenderer.invoke('google-sheets-get', opts),
+  googleSheetsUpdate: (opts) => ipcRenderer.invoke('google-sheets-update', opts),
+  googleSheetsAppend: (opts) => ipcRenderer.invoke('google-sheets-append', opts),
+  googleAppScriptRun: (opts) => ipcRenderer.invoke('google-appscript-run', opts),
+
   // First-time channel guide
   checkGuideNeeded: (channel) => ipcRenderer.invoke('check-guide-needed', { channel }),
   markGuideComplete: (channel) => ipcRenderer.invoke('mark-guide-complete', { channel }),
@@ -211,6 +281,8 @@ contextBridge.exposeInMainWorld('claw', {
   toggleUserSkill: (id, enabled) => ipcRenderer.invoke('toggle-user-skill', id, enabled),
   checkSkillConflict: (data) => ipcRenderer.invoke('check-skill-conflict', data),
   restoreUserSkill: (id) => ipcRenderer.invoke('restore-user-skill', id),
+  previewZaloStack: (opts) => ipcRenderer.invoke('preview-zalo-stack', opts || {}),
+  replaceShippedSkill: (shippedId, withUserSkillId) => ipcRenderer.invoke('replace-shipped-skill', { shippedId, withUserSkillId }),
   onSkillUpdated: (callback) => {
     ipcRenderer.removeAllListeners('skill-updated');
     ipcRenderer.on('skill-updated', (_, data) => callback(data));
@@ -224,8 +296,21 @@ contextBridge.exposeInMainWorld('claw', {
   listMediaAssets: (filters) => ipcRenderer.invoke('list-media-assets', filters || {}),
   uploadMediaAsset: (opts) => ipcRenderer.invoke('upload-media-asset', opts || {}),
   describeMediaAsset: (id) => ipcRenderer.invoke('describe-media-asset', id),
+  searchMediaAssets: (opts) => ipcRenderer.invoke('search-media-assets', opts || {}),
   deleteMediaAsset: (id) => ipcRenderer.invoke('delete-media-asset', id),
   pickMediaAssetFile: () => ipcRenderer.invoke('pick-media-asset-file'),
+
+  // Facebook
+  getFbConfig: () => ipcRenderer.invoke('get-fb-config'),
+  saveFbConfig: (accessToken) => ipcRenderer.invoke('save-fb-config', { accessToken }),
+  updateFbPage: (id, props) => ipcRenderer.invoke('update-fb-page', { id, ...props }),
+  verifyFbToken: () => ipcRenderer.invoke('verify-fb-token'),
+  getFbRecentPosts: () => ipcRenderer.invoke('get-fb-recent-posts'),
+  // Facebook Ads (bring-your-own ads_management token, separate from page token)
+  getFbAdsConfig: () => ipcRenderer.invoke('get-fb-ads-config'),
+  verifyFbAdsToken: (token) => ipcRenderer.invoke('verify-fb-ads-token', { token }),
+  saveFbAdsConfig: (token, adAccountId, tokenKind) => ipcRenderer.invoke('save-fb-ads-config', { token, adAccountId, tokenKind }),
+  disconnectFbAds: () => ipcRenderer.invoke('disconnect-fb-ads'),
 
   // License (membership builds only)
   activateLicense: (key) => ipcRenderer.invoke('activate-license', { key }),
@@ -244,6 +329,10 @@ contextBridge.exposeInMainWorld('claw', {
     ipcRenderer.removeAllListeners('update-available');
     ipcRenderer.on('update-available', (_event, data) => cb(data));
   },
+  onUpdateCleared: (cb) => {
+    ipcRenderer.removeAllListeners('update-cleared');
+    ipcRenderer.on('update-cleared', () => cb());
+  },
   onUpdateDownloadProgress: (cb) => {
     ipcRenderer.removeAllListeners('update-download-progress');
     ipcRenderer.on('update-download-progress', (_event, data) => cb(data));
@@ -258,10 +347,18 @@ contextBridge.exposeInMainWorld('claw', {
   restoreBackupApply: (filePath, password) => ipcRenderer.invoke('restore-backup-apply', { filePath, password }),
   openBackupFileDialog: () => ipcRenderer.invoke('open-backup-file-dialog'),
 
-  // Generic channel API
+  // Generic channel API (WhatsApp, Lark, future)
+  channelReady: (ch) => ipcRenderer.invoke('channel:ready', { ch }),
+  channelConnect: (ch) => ipcRenderer.invoke('channel:connect', { ch }),
+  channelDisconnect: (ch) => ipcRenderer.invoke('channel:disconnect', { ch }),
   channelConfigGet: (ch) => ipcRenderer.invoke('channel:config:get', { ch }),
   channelConfigSave: (ch, config) => ipcRenderer.invoke('channel:config:save', { ch, config }),
   channelPause: (ch, minutes) => ipcRenderer.invoke('channel:pause', { ch, minutes }),
   channelResume: (ch) => ipcRenderer.invoke('channel:resume', { ch }),
   channelPauseStatus: (ch) => ipcRenderer.invoke('channel:pause-status', { ch }),
+
+  // Premium Onboarding 7 Ngày
+  getOnboardingStatus: () => ipcRenderer.invoke('onboarding:status'),
+  dismissOnboarding: () => ipcRenderer.invoke('onboarding:dismiss'),
+  advanceOnboarding: () => ipcRenderer.invoke('onboarding:advance'),
 });
