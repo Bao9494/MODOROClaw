@@ -100,7 +100,7 @@ const {
 const {
   extractConversationHistoryRaw, extractConversationHistory,
   writeDailyMemoryJournal, appendPerCustomerSummaries, trimZaloMemoryFile,
-  withMemoryFileLock, touchIdleMemoryTimer, startIdleMemoryWatcher,
+  withMemoryFileLock, touchIdleMemoryTimer, setIdleMemoryRunCronAgent,
 } = require('./conversation');
 const {
   compareVersions, checkForUpdates, downloadUpdate, installDmgUpdate, openGitHubUrl,
@@ -497,9 +497,8 @@ async function ensureModoroEndpoint() {
 function registerAllIpcHandlers() {
 
 registerChatIpc();
-// Start the periodic memory-extraction watcher (replaces the old re-armable
-// timeout that never fired on an active bot — see conversation.js for details).
-try { startIdleMemoryWatcher(); } catch (e) { console.warn('[idle-memory] watcher init error:', e?.message); }
+// Wire idle memory extraction through the current cron/session fallback path.
+try { setIdleMemoryRunCronAgent(runCronViaSessionOrFallback); } catch {}
 // Start auto-refresh watcher (idempotent: gated by ctx.mainWindow availability).
 try { startZaloConfigWatcher(); } catch (e) { console.warn('[zalo-watcher] init error:', e?.message); }
 

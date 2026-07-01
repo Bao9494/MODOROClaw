@@ -2927,7 +2927,7 @@
     },
     {
       "path": "electron/lib/dashboard-ipc.js",
-      "bytes": 319497
+      "bytes": 319381
     },
     {
       "path": "electron/lib/license.js",
