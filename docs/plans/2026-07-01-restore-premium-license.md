@@ -60,3 +60,4 @@ Khoi phuc kien truc license/membership tu ban premium cu vao source hien tai, gi
 - 2026-07-02: Kiem tra `app.asar` da cai: `version=2.4.23`, `membership=true`, co `lib/license.js`, `lib/license-public.pem`, `ui/license.html`, va van co `lib/telegram-memory.js`, `lib/telegram-routing.js`.
 - 2026-07-02: Kiem tra license runtime tu `app.asar` da cai: `status=valid`, `plan=premium`, han den `2027-06-30`; khong in full key.
 - 2026-07-02: Mo app that thanh cong sau khi tam bo bien moi truong test `ELECTRON_RUN_AS_NODE=1` trong shell Codex. Log xac nhan `membership build, license valid`, load `dashboard.html`, va `license revalidation: ok (not revoked)`.
+- 2026-07-02: Tat phien test ke thua bien shell, mo lai qua Explorer de dung moi truong nguoi dung binh thuong. Log moi van xac nhan `membership build, license valid` va load `dashboard.html`.
