@@ -120,7 +120,7 @@ Dashboard Pages
 - zalo-behavior
 
 Large Source Files
-- electron/ui/dashboard.html: 783498 bytes
+- electron/ui/dashboard.html: 783151 bytes
 - electron/lib/dashboard-ipc.js: 319497 bytes
 - electron/lib/license.js: 187389 bytes
 - electron/lib/cron-api.js: 168802 bytes
