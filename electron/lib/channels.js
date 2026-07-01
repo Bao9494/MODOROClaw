@@ -674,13 +674,14 @@ function getChannelPauseStatus(channel) {
 // ============================================
 
 /**
- * Send a Telegram message to the configured CEO chat.
+ * Send a Telegram message to the configured CEO chat, or to an explicit
+ * target chat for conversation-scoped cron deliveries.
  * Applies output filter (unless skipFilter), pause check, 429 retry, and 4KB split.
  * @param {string} text - Message text to send
- * @param {{ skipFilter?: boolean, skipPauseCheck?: boolean }} [opts]
+ * @param {{ skipFilter?: boolean, skipPauseCheck?: boolean, targetChatId?: string|number }} [opts]
  * @returns {Promise<boolean|null>} true on success, null on failure
  */
-async function sendTelegram(text, { skipFilter = false, skipPauseCheck = false } = {}) {
+async function sendTelegram(text, { skipFilter = false, skipPauseCheck = false, targetChatId = null } = {}) {
   // Check pause state — skip send if Telegram is paused
   if (!skipPauseCheck && isChannelPaused('telegram')) {
     console.log('[sendTelegram] channel paused — skipping');
@@ -707,7 +708,10 @@ async function sendTelegram(text, { skipFilter = false, skipPauseCheck = false }
     } catch {}
   }
   const { token, chatId } = getTelegramConfig();
-  if (!token || !chatId) {
+  const effectiveChatId = targetChatId != null && String(targetChatId).trim()
+    ? String(targetChatId).trim()
+    : chatId;
+  if (!token || !effectiveChatId) {
     console.error('[sendTelegram] missing token or chatId');
     return null;
   }
@@ -723,13 +727,13 @@ async function sendTelegram(text, { skipFilter = false, skipPauseCheck = false }
     if (c < TELEGRAM_MIN_SPLIT_POS) c = text.lastIndexOf('\n', TELEGRAM_MAX_MSG_LENGTH);
     if (c < TELEGRAM_MIN_SPLIT_POS) c = text.lastIndexOf(' ', TELEGRAM_MAX_MSG_LENGTH);
     if (c < TELEGRAM_MIN_SPLIT_POS) c = TELEGRAM_MAX_MSG_LENGTH;
-    await sendTelegram(text.slice(0, c), { skipFilter: true, skipPauseCheck });
+    await sendTelegram(text.slice(0, c), { skipFilter: true, skipPauseCheck, targetChatId: effectiveChatId });
     await new Promise(r => setTimeout(r, 300));
-    return sendTelegram(text.slice(c).trimStart(), { skipFilter: true, skipPauseCheck });
+    return sendTelegram(text.slice(c).trimStart(), { skipFilter: true, skipPauseCheck, targetChatId: effectiveChatId });
   }
   const https = require('https');
   const doRequest = (withRetry = true) => new Promise((resolve) => {
-    const payload = JSON.stringify({ chat_id: chatId, text });
+    const payload = JSON.stringify({ chat_id: effectiveChatId, text });
     const req = https.request(
       `https://api.telegram.org/bot${token}/sendMessage`,
       { method: 'POST', timeout: 30000, headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } },

@@ -649,6 +649,7 @@ function seedWorkspace() {
   // bot will actually use after wizard).
   try { fs.mkdirSync(path.join(ws, 'memory', 'zalo-users'), { recursive: true }); } catch {}
   try { fs.mkdirSync(path.join(ws, 'memory', 'zalo-groups'), { recursive: true }); } catch {}
+  try { fs.mkdirSync(path.join(ws, 'memory', 'telegram-chats'), { recursive: true }); } catch {}
   try { fs.mkdirSync(path.join(ws, 'brand-assets'), { recursive: true }); } catch {}
   try { fs.mkdirSync(path.join(ws, 'brand-assets', 'generated'), { recursive: true }); } catch {}
   try { fs.mkdirSync(path.join(ws, 'media-assets'), { recursive: true }); } catch {}
@@ -661,6 +662,7 @@ function seedWorkspace() {
     if (agentWs && agentWs !== ws) {
       fs.mkdirSync(path.join(agentWs, 'memory', 'zalo-users'), { recursive: true });
       fs.mkdirSync(path.join(agentWs, 'memory', 'zalo-groups'), { recursive: true });
+      fs.mkdirSync(path.join(agentWs, 'memory', 'telegram-chats'), { recursive: true });
     }
   } catch {}
 

@@ -87,6 +87,16 @@ assert('cron token cleanup strips custom cron tokens', cronApiSource.includes('s
 const channelsSource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'channels.js'), 'utf8');
 assert('channels exports sendZaloMediaTo', /sendZaloMediaTo/.test(channelsSource));
 
+const cronSource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'cron.js'), 'utf8');
+const telegramRouting = require(path.join(__dirname, '..', 'lib', 'telegram-routing'));
+const telegramTarget = telegramRouting.buildTelegramTargetFromContext({
+  telegramChatId: '-1003857797941',
+  telegramChatType: 'supergroup',
+});
+assert('telegram routing preserves group chat target', telegramTarget && telegramTarget.replyChatId === '-1003857797941' && telegramRouting.resolveTelegramChatIdFromTarget(telegramTarget) === '-1003857797941', JSON.stringify(telegramTarget));
+assert('cron api uses shared telegram routing', cronApiSource.includes("require('./telegram-routing')") && !/function\s+buildTelegramTargetFromContext/.test(cronApiSource), 'cron-api.js must not keep a private Telegram target builder');
+assert('cron runner uses shared telegram routing', cronSource.includes("require('./telegram-routing')") && !/function\s+resolveTelegramChatIdFromTarget/.test(cronSource), 'cron.js must not keep a private Telegram target resolver');
+
 const knowledgeSource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'knowledge.js'), 'utf8');
 assert('knowledge merges media search results', knowledgeSource.includes('mergeMediaSearchResults'), 'media search is not merged into RAG search');
 assert('knowledge renders PDF scans into media pages', knowledgeSource.includes('renderPdfPagesToMedia'), 'PDF scan renderer is not wired');
@@ -111,6 +121,7 @@ assert('image generation rejects raw workspace paths', !/path\.isAbsolute\(name\
 const vendorPatchesSource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'vendor-patches.js'), 'utf8');
 assert('web_fetch auth covers all Cron API fallback ports', /2020\[0-3\]/.test(vendorPatchesSource), 'web_fetch patch must cover ports 20200-20203');
 assert('web_fetch emits legacy and 9BizClaw channel headers', vendorPatchesSource.includes('"X-9BizClaw-Agent-Channel"') && vendorPatchesSource.includes('"X-Source-Channel"'), 'web_fetch patch must emit channel headers consumed by routes');
+assert('web_fetch emits Telegram cron context headers', vendorPatchesSource.includes('"X-9BizClaw-Agent-Session-Key"') && vendorPatchesSource.includes('"X-9BizClaw-Telegram-Chat-Id"'), 'cron create requests must carry Telegram session/chat context when available');
 
 if (failures.length) {
   console.error('[media-library-contract] FAIL');

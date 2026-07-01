@@ -14,6 +14,7 @@ const {
 const { extractConversationHistory, writeDailyMemoryJournal } = require('./conversation');
 const { call9Router } = require('./nine-router');
 const { getZcaProfile } = require('./zalo-memory');
+const { resolveTelegramChatIdFromTarget } = require('./telegram-routing');
 
 // Lazy-load gateway to avoid circular require
 let _gateway = null;
@@ -67,8 +68,26 @@ function inferMemoryTaskType(text) {
   return 'workflow';
 }
 
-async function injectMemoryOsContext(prompt, { label = '' } = {}) {
+async function injectMemoryOsContext(prompt, { label = '', telegramTarget = null } = {}) {
   try {
+    if (telegramTarget) {
+      try {
+        const { buildTelegramMemoryContext, formatTelegramMemoryPromptBlock } = require('./telegram-memory');
+        const tgCtx = await buildTelegramMemoryContext({
+          telegramTarget,
+          query: [label, prompt].filter(Boolean).join('\n'),
+          prompt,
+          taskType: inferMemoryTaskType([label, prompt].join(' ')),
+          intent: label,
+          label,
+          limit: 10,
+        });
+        const block = formatTelegramMemoryPromptBlock(tgCtx);
+        if (block) return `${block}\n\n${prompt}`;
+      } catch (e) {
+        console.warn('[cron-agent] telegram conversation memory injection failed:', e?.message);
+      }
+    }
     const { getMemoryContext } = require('./ceo-memory');
     const ctx = await getMemoryContext({
       query: [label, prompt].filter(Boolean).join('\n'),
@@ -250,6 +269,15 @@ async function _alertCronBlocked(label, pattern, channelLabel) {
   } catch {}
 }
 
+function customCronRunOpts(c, labelOverride) {
+  return {
+    label: labelOverride || c.label || c.id,
+    zaloTarget: c.zaloTarget,
+    telegramTarget: c.telegramTarget,
+    isOneTime: !!c.oneTimeAt,
+  };
+}
+
 async function deliverCronResultToZalo(replyText, zaloTarget, label) {
   if (!replyText) return true;
   const cleaned = _stripProcessAcks(String(replyText));
@@ -300,7 +328,7 @@ async function deliverCronResultToZalo(replyText, zaloTarget, label) {
 // nhận…" ack, so the CEO gets a content-less message at EVERY cron fire when the
 // model errors (the reported bug). A failed cron must produce NO message here —
 // genuine spawn/exit failures are still surfaced via the retry/fatal path.
-async function deliverCronResultToTelegram(replyText, label) {
+async function deliverCronResultToTelegram(replyText, label, targetChatId = null) {
   if (!replyText) return true;
   const cleaned = _stripProcessAcks(String(replyText));
   if (!cleaned || cleaned.length < 5 || /^\s*DONE\s*[.!]?\s*$/i.test(cleaned)) {
@@ -317,7 +345,7 @@ async function deliverCronResultToTelegram(replyText, label) {
     }
   } catch {}
   try {
-    await sendTelegram(cleaned);
+    await sendTelegram(cleaned, { targetChatId });
   } catch (e) {
     console.warn(`[cron-agent] Telegram delivery failed:`, e?.message);
   }
@@ -485,7 +513,7 @@ async function runCronAgentPrompt(prompt, opts = {}) {
   return run;
 }
 
-async function _runCronAgentPromptImpl(prompt, { label, zaloTarget, isOneTime, timeoutMs = CRON_AGENT_TIMEOUT_MS } = {}) {
+async function _runCronAgentPromptImpl(prompt, { label, zaloTarget, telegramTarget, isOneTime, timeoutMs = CRON_AGENT_TIMEOUT_MS } = {}) {
   const niceLabel = label || 'cron';
 
   // PAUSE CHECK 2026-05-15: if this cron targets Zalo and Zalo channel is
@@ -535,7 +563,10 @@ async function _runCronAgentPromptImpl(prompt, { label, zaloTarget, isOneTime, t
 
   if (!_agentFlagProfile) _agentFlagProfile = 'full';
 
-  const { chatId, recovered } = await getTelegramConfigWithRecovery();
+  const telegramConfig = await getTelegramConfigWithRecovery();
+  const metadataChatId = resolveTelegramChatIdFromTarget(telegramTarget);
+  const chatId = metadataChatId || telegramConfig.chatId;
+  const recovered = metadataChatId ? 'cron-metadata' : telegramConfig.recovered;
   if (!chatId) {
     journalCronRun({ phase: 'fail', label: niceLabel, reason: 'no-chat-id-even-after-recovery' });
     console.error(`[cron-agent] "${niceLabel}" — no telegram chatId, even after recovery attempt`);
@@ -563,7 +594,7 @@ async function _runCronAgentPromptImpl(prompt, { label, zaloTarget, isOneTime, t
 
   // Wrap ALL cron prompts with [AUTO-MODE] tag so AGENTS.md skips confirmation rules.
   // Zalo-targeted crons get additional delivery instruction.
-  const promptWithMemory = await injectMemoryOsContext(prompt, { label: niceLabel });
+  const promptWithMemory = await injectMemoryOsContext(prompt, { label: niceLabel, telegramTarget });
   let finalPrompt = '[AUTO-MODE]\n' + promptWithMemory;
   if (zaloTarget && zaloTarget.id) {
     finalPrompt += '\n\n[Kết quả của task này sẽ được gửi trực tiếp đến Zalo. CHỈ output nội dung cuối cùng dành cho người nhận. TUYỆT ĐỐI KHÔNG mô tả quy trình, bước làm, workflow, hay giải thích cách em xử lý. Nếu đã hoàn thành qua tool call và không cần gửi thêm gì, chỉ output: DONE]';
@@ -590,7 +621,7 @@ async function _runCronAgentPromptImpl(prompt, { label, zaloTarget, isOneTime, t
       if (zaloTarget && replyText) {
         zaloOk = await deliverCronResultToZalo(replyText, zaloTarget, niceLabel);
       } else if (replyText && !zaloTarget) {
-        await deliverCronResultToTelegram(replyText, niceLabel);
+        await deliverCronResultToTelegram(replyText, niceLabel, chatId);
       }
       journalCronRun({ phase: 'ok', label: niceLabel, attempt, durMs, profile: _agentFlagProfile, viaCmdShell: res.viaCmdShell, zaloDelivered: !!zaloTarget });
       console.log(`[cron-agent] "${niceLabel}" delivered${zaloTarget ? ' (Telegram+zalo)' : ' (Telegram only)'} in ${durMs}ms (viaCmdShell=${res.viaCmdShell})`);
@@ -1425,7 +1456,7 @@ async function runCronViaSessionOrFallback(prompt, opts = {}) {
   // When cron targets a Zalo group, session-send cannot deliver there (it only
   // replies to the CEO's Telegram session). Always use runCronAgentPrompt which
   // handles Zalo delivery with the actual agent reply text.
-  if (opts.zaloTarget || opts.groupId || opts.groupIds) {
+  if (opts.zaloTarget || opts.telegramTarget || opts.groupId || opts.groupIds) {
     return runCronAgentPrompt(prompt, opts);
   }
   const sessionKey = await getCeoSessionKey();
@@ -2282,9 +2313,9 @@ function _startCronJobsInner() {
           console.log(`[cron] OneTime "${c.label || c.id}" firing at`, new Date().toISOString());
           try {
             if (c.prompt && !c.prompt.startsWith('exec:')) {
-              await runCronViaSessionOrFallback(c.prompt, { label: c.label || c.id, zaloTarget: c.zaloTarget, isOneTime: !!c.oneTimeAt });
+              await runCronViaSessionOrFallback(c.prompt, customCronRunOpts(c));
             } else {
-              await runCronAgentPrompt(c.prompt, { label: c.label || c.id, zaloTarget: c.zaloTarget, isOneTime: !!c.oneTimeAt });
+              await runCronAgentPrompt(c.prompt, customCronRunOpts(c));
             }
             try { auditLog('cron_fired', { id: c.id, label: c.label || c.id, kind: 'one-time' }); } catch {}
           } catch (e) {
@@ -2344,9 +2375,9 @@ function _startCronJobsInner() {
           console.log(`[cron] OneTime "${c.label || c.id}" firing at`, new Date().toISOString());
           try {
             if (c.prompt && !c.prompt.startsWith('exec:')) {
-              await runCronViaSessionOrFallback(c.prompt, { label: c.label || c.id, zaloTarget: c.zaloTarget, isOneTime: !!c.oneTimeAt });
+              await runCronViaSessionOrFallback(c.prompt, customCronRunOpts(c));
             } else {
-              await runCronAgentPrompt(c.prompt, { label: c.label || c.id, zaloTarget: c.zaloTarget, isOneTime: !!c.oneTimeAt });
+              await runCronAgentPrompt(c.prompt, customCronRunOpts(c));
             }
             try { auditLog('cron_fired', { id: c.id, label: c.label || c.id, kind: 'one-time-healed' }); } catch {}
           } catch (e) {
@@ -2395,8 +2426,8 @@ function _startCronJobsInner() {
         try {
           console.log(`[cron] Custom "${c.label || c.id}" triggered at`, new Date().toISOString());
           const ok = (c.prompt && !c.prompt.startsWith('exec:'))
-            ? await runCronViaSessionOrFallback(c.prompt, { label: c.label || c.id, zaloTarget: c.zaloTarget, isOneTime: !!c.oneTimeAt })
-            : await runCronAgentPrompt(c.prompt, { label: c.label || c.id, zaloTarget: c.zaloTarget, isOneTime: !!c.oneTimeAt });
+            ? await runCronViaSessionOrFallback(c.prompt, customCronRunOpts(c))
+            : await runCronAgentPrompt(c.prompt, customCronRunOpts(c));
           console.log(`[cron] Custom ${c.id} agent run result:`, ok);
           try { auditLog('cron_fired', { id: c.id, label: c.label || c.id, kind: 'custom' }); } catch {}
         } catch (e) {
@@ -2589,8 +2620,8 @@ async function replayMissedCrons(sinceMs) {
       try { await sendCeoAlert(`[Cron resume] Lịch "${c.label}" đáng lẽ chạy lúc ${new Date(lastMatch).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })} nhưng máy đang ngủ. Em sẽ chạy lại lúc lịch tiếp theo.`); } catch {}
     } else if (c.prompt) {
       try {
-        if (c.prompt.startsWith('exec:')) await runCronAgentPrompt(c.prompt, { label: c.label, zaloTarget: c.zaloTarget, isOneTime: !!c.oneTimeAt });
-        else await runCronViaSessionOrFallback(c.prompt, { label: c.label, zaloTarget: c.zaloTarget, isOneTime: !!c.oneTimeAt });
+        if (c.prompt.startsWith('exec:')) await runCronAgentPrompt(c.prompt, customCronRunOpts(c, c.label));
+        else await runCronViaSessionOrFallback(c.prompt, customCronRunOpts(c, c.label));
         replayed++;
       } catch (e) { console.warn(`[replayMissedCrons] ${c.id} failed:`, e?.message); }
     }

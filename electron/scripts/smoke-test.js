@@ -1172,6 +1172,20 @@ function checkModuleContracts() {
     if (!Array.isArray(ceoMem.VALID_TYPES) || !expectedTypes.every(t => ceoMem.VALID_TYPES.includes(t))) errors.push('ceo-memory.js VALID_TYPES wrong');
     if (!Array.isArray(ceoMem.VALID_SOURCES) || !expectedSources.every(s => ceoMem.VALID_SOURCES.includes(s))) errors.push('ceo-memory.js VALID_SOURCES wrong');
   } catch (e) { errors.push(`ceo-memory.js failed to load: ${e.message}`); }
+  // Wave 2: telegram-memory.js
+  try {
+    const tgMem = require('../lib/telegram-memory');
+    const required = ['resolveTelegramConversation', 'buildTelegramMemoryContext',
+      'formatTelegramMemoryPromptBlock', 'ensureTelegramConversationProfile',
+      'telegramEntityId', 'roleScopeHints'];
+    for (const fn of required) {
+      if (typeof tgMem[fn] !== 'function') errors.push(`telegram-memory.js missing export: ${fn}`);
+    }
+    const group = tgMem.resolveTelegramConversation({ telegramChatId: '-1003857797941', telegramChatType: 'supergroup' });
+    if (!group || group.role !== 'customer' || !group.scopeHints.includes('customer')) {
+      errors.push('telegram-memory.js group role/scope defaults wrong');
+    }
+  } catch (e) { errors.push(`telegram-memory.js failed to load: ${e.message}`); }
   // Wave 2: ceo-nudge.js
   try {
     const nudge = require('../lib/ceo-nudge');
@@ -1667,12 +1681,14 @@ try {
   }
   const vendorPatchSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'vendor-patches.js'), 'utf-8');
   const hasWebFetchTokenPatch =
-    vendorPatchSrc.includes('9BizClaw WEB_FETCH CRON TOKEN PATCH v2') &&
+    vendorPatchSrc.includes('9BizClaw WEB_FETCH CRON TOKEN PATCH v4') &&
     vendorPatchSrc.includes('9BizClaw WEB_FETCH LOCAL API CACHE BYPASS') &&
     vendorPatchSrc.includes('skip9BizClawLocalApiCache') &&
     vendorPatchSrc.includes('params.agentChannel') &&
     vendorPatchSrc.includes('agentChannel: options?.agentChannel') &&
     vendorPatchSrc.includes('agentSessionKey: options?.agentSessionKey') &&
+    vendorPatchSrc.includes('"X-9BizClaw-Agent-Session-Key"') &&
+    vendorPatchSrc.includes('"X-9BizClaw-Telegram-Chat-Id"') &&
     // verify the injected runWebFetch params include agentSessionKey + agentChannel
     /agentSessionKey:\s*options\?\.(?:agentSessionKey|agentChannel)[^}]*agentChannel:\s*options\?\.(?:agentChannel|agentSessionKey)/.test(vendorPatchSrc) &&
     // Port range must cover 20200-20203 (bug: [01] would only match 20200-20201, fail 20202-20203)
@@ -2427,8 +2443,27 @@ section('Cron Telegram delivery (no content-less acks)');
 {
   try {
     const cronSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'cron.js'), 'utf-8');
+    const cronApiSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'cron-api.js'), 'utf-8');
+    const telegramRouting = require('../lib/telegram-routing');
     if (/function\s+deliverCronResultToTelegram\s*\(/.test(cronSrc)) pass('cron.js has deliverCronResultToTelegram()');
     else fail('cron telegram delivery', 'deliverCronResultToTelegram() missing');
+
+    const target = telegramRouting.buildTelegramTargetFromContext({
+      telegramChatId: '-1003857797941',
+      telegramChatType: 'supergroup',
+    });
+    const resolved = telegramRouting.resolveTelegramChatIdFromTarget(target);
+    if (target && target.replyChatId === '-1003857797941' && resolved === '-1003857797941') {
+      pass('telegram-routing builds and resolves same-chat target');
+    } else {
+      fail('telegram-routing target resolver', 'failed to preserve Telegram group chatId for cron delivery');
+    }
+
+    if (cronSrc.includes("require('./telegram-routing')") && cronApiSrc.includes("require('./telegram-routing')")) {
+      pass('cron Telegram target helpers live in shared telegram-routing module');
+    } else {
+      fail('telegram-routing wiring', 'cron.js and cron-api.js must share the same Telegram target resolver');
+    }
 
     const usesHelper = /else if \(replyText && !zaloTarget\)\s*\{[\s\S]{0,160}deliverCronResultToTelegram\(/.test(cronSrc);
     const bare = /else if \(replyText && !zaloTarget\)\s*\{[\s\S]{0,120}await sendTelegram\(replyText\)/.test(cronSrc);

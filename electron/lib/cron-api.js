@@ -15,6 +15,7 @@ const leaveManager = require('./leave-manager');
 leaveManager.init({ getWorkspace });
 const inventoryManager = require('./inventory-manager');
 inventoryManager.init({ getWorkspace });
+const { buildTelegramTargetFromContext } = require('./telegram-routing');
 
 let shell;
 try { shell = require('electron').shell; } catch {}
@@ -551,7 +552,7 @@ function startCronApi() {
     return String(text).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, ' ').replace(/\r/g, '');
   }
 
-  function buildCronEntryForAtomicReplace(spec, index = 0) {
+  function buildCronEntryForAtomicReplace(spec, index = 0, defaultTelegramTarget = null) {
     if (!spec || typeof spec !== 'object') return { error: 'create entry #' + (index + 1) + ' must be an object' };
     const schedule = normalizeCronScheduleSpec(spec);
     if (schedule.error) return { error: 'create entry #' + (index + 1) + ': ' + schedule.error };
@@ -586,6 +587,8 @@ function startCronApi() {
       }
 
       const entry = { id, label, prompt: finalPrompt, mode: 'agent', enabled: true, createdAt: new Date().toISOString() };
+      const telegramTarget = buildTelegramTargetFromContext(spec) || defaultTelegramTarget;
+      if (telegramTarget) entry.telegramTarget = telegramTarget;
       if (delivery?.type === 'group') entry.groupId = delivery.ids[0];
       if (delivery?.type === 'user') {
         entry.targetId = delivery.ids[0];
@@ -1008,6 +1011,7 @@ function startCronApi() {
         if (delivery?.error) return jsonResp(res, 400, { error: delivery.error });
 
         const id = 'cron_' + Date.now() + '_' + crypto.randomBytes(3).toString('hex');
+        const telegramTarget = buildTelegramTargetFromContext(params, req.headers);
         const entry = {
           id,
           label: label || ('Agent cron ' + new Date().toISOString().slice(0, 16)),
@@ -1016,6 +1020,7 @@ function startCronApi() {
           enabled: true,
           createdAt: new Date().toISOString(),
         };
+        if (telegramTarget) entry.telegramTarget = telegramTarget;
         if (delivery?.type === 'group') entry.groupId = delivery.ids[0];
         if (delivery?.type === 'user') {
           entry.targetId = delivery.ids[0];
@@ -1249,9 +1254,10 @@ function startCronApi() {
         }
         if (createsParsed.length > 20) return jsonResp(res, 400, { error: 'too many creates (max 20)' });
 
+        const defaultTelegramTarget = buildTelegramTargetFromContext(params, req.headers);
         const built = [];
         for (let i = 0; i < createsParsed.length; i++) {
-          const result = buildCronEntryForAtomicReplace(createsParsed[i], i);
+          const result = buildCronEntryForAtomicReplace(createsParsed[i], i, defaultTelegramTarget);
           if (result.error) return jsonResp(res, 400, { error: result.error, transactional: true, changed: false });
           built.push(result);
         }

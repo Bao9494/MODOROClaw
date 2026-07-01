@@ -193,6 +193,7 @@ function _allowedScopesForChannel(channel, scopeHints = []) {
   }
   if (ch === 'telegram' || ch === 'app' || ch === 'internal' || ch === 'ceo') {
     const base = ['ceo', 'internal', 'workflow', 'public'];
+    if (ch === 'telegram' && hints.includes('customer')) base.push('customer');
     return hints.length ? base.filter(s => hints.includes(s) || s === 'public') : base;
   }
   return ['public'];
@@ -203,11 +204,17 @@ function _isCustomerChannel(channel) {
   return ch === 'zalo';
 }
 
+function _requiresActorScopedCustomerFilter(channel, allowedScopes = null) {
+  if (_isCustomerChannel(channel)) return true;
+  const ch = String(channel || '').trim().toLowerCase();
+  return ch === 'telegram' && Array.isArray(allowedScopes) && allowedScopes.includes('customer');
+}
+
 function _rowAllowedForActor(row, channel, actorId) {
   if (!_isCustomerChannel(channel)) return true;
   const entityType = String(row.entity_type || '').trim().toLowerCase();
   const entityId = String(row.entity_id || '').trim();
-  const isCustomerEntity = ['customer', 'zalo_user', 'zalo_group', 'group'].includes(entityType);
+  const isCustomerEntity = ['customer', 'zalo_user', 'zalo_group', 'group', 'telegram_chat'].includes(entityType);
   const isCustomerScopedEntity = (row.scope || 'ceo') === 'customer' && !!entityId;
   if (!isCustomerEntity && !isCustomerScopedEntity) return true;
   const actor = String(actorId || '').trim();
@@ -498,11 +505,11 @@ async function searchMemory(query, { limit = 5, bumpRelevance = true, scopes = n
     where.push(`COALESCE(scope, 'ceo') IN (${allowedScopes.map(() => '?').join(',')})`);
     params.push(...allowedScopes);
   }
-  if (_isCustomerChannel(channel)) {
+  if (_requiresActorScopedCustomerFilter(channel, allowedScopes)) {
     const actor = String(actorId || '').trim();
     where.push(`(
       NOT (
-        LOWER(COALESCE(entity_type, '')) IN ('customer', 'zalo_user', 'zalo_group', 'group')
+        LOWER(COALESCE(entity_type, '')) IN ('customer', 'zalo_user', 'zalo_group', 'group', 'telegram_chat')
         OR (COALESCE(scope, 'ceo') = 'customer' AND COALESCE(entity_id, '') != '')
       )
       OR (? != '' AND COALESCE(entity_id, '') = ?)
@@ -602,6 +609,8 @@ async function getMemoryContext({ query = '', channel = 'telegram', actorId = nu
   const ch = String(channel || '').toLowerCase();
   if (ch === 'zalo') {
     safetyWarnings.push('Customer channel: CEO/internal memories are excluded before scoring.');
+  } else if (ch === 'telegram' && allowedScopes.includes('customer')) {
+    safetyWarnings.push('Telegram customer-like conversation: CEO/internal memories are excluded and entity-specific memories require matching actorId.');
   }
 
   return {

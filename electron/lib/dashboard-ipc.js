@@ -118,6 +118,14 @@ const {
   registerTelegramCommands,
 } = require('./channels');
 const {
+  listTelegramConversations,
+  saveTelegramConversationSettings,
+  readTelegramConversationProfile,
+  seedTelegramConversationsFromRuntime,
+  ensureTelegramConversationProfile,
+  sanitizeTelegramChatId,
+} = require('./telegram-memory');
+const {
   getAppointmentsPath, readAppointments, writeAppointments,
   newAppointmentId, mutateAppointments,
   vnHHMM, vnDDMM, normalizeAppointment,
@@ -2779,9 +2787,15 @@ ipcMain.handle('test-cron', async (_event, { type, id }) => {
       const c = customs.find(x => x.id === id);
       if (!c) return { success: false, error: 'Custom cron not found' };
       if (!c.prompt) return { success: false, error: 'Cron không có prompt' };
+      const testOpts = {
+        label: `TEST — ${c.label || c.id}`,
+        zaloTarget: c.zaloTarget,
+        telegramTarget: c.telegramTarget,
+        isOneTime: !!c.oneTimeAt,
+      };
       const ok = !c.prompt.startsWith('exec:')
-        ? await runCronViaSessionOrFallback(c.prompt, { label: `TEST — ${c.label || c.id}` })
-        : await runCronAgentPrompt(c.prompt, { label: `TEST — ${c.label || c.id}` });
+        ? await runCronViaSessionOrFallback(c.prompt, testOpts)
+        : await runCronAgentPrompt(c.prompt, testOpts);
       return { success: ok, sent: ok };
     }
     return { success: false, error: 'Unknown type' };
@@ -2991,6 +3005,57 @@ ipcMain.handle('save-telegram-config', async (_e, { botToken, userId }) => {
 
 ipcMain.handle('check-telegram-ready', async () => probeTelegramReady());
 ipcMain.handle('check-zalo-ready', async () => probeZaloReady());
+
+// --- Telegram conversation manager (Dashboard) ---
+ipcMain.handle('list-telegram-conversations', async () => {
+  try {
+    return listTelegramConversations();
+  } catch (e) {
+    console.error('[telegram-manager] list error:', e?.message || e);
+    return { success: false, conversations: [], error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('save-telegram-conversation-settings', async (_event, payload) => {
+  try {
+    return saveTelegramConversationSettings(payload || {});
+  } catch (e) {
+    console.error('[telegram-manager] save error:', e?.message || e);
+    return { success: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('read-telegram-conversation-memory', async (_event, payload) => {
+  try {
+    const request = payload && typeof payload === 'object' ? payload : { chatId: payload };
+    const id = sanitizeTelegramChatId(request.chatId);
+    if (!id) return { exists: false, content: '', error: 'invalid chatId' };
+    const profile = readTelegramConversationProfile(id, 8000);
+    if (profile) return { exists: true, content: profile.content, path: profile.path };
+    const seeded = ensureTelegramConversationProfile({
+      telegramChatId: id,
+      telegramChatType: request.chatType || request.telegramChatType || '',
+      role: request.role || '',
+      label: request.label || request.title || '',
+    });
+    const created = seeded ? readTelegramConversationProfile(id, 8000) : null;
+    return created
+      ? { exists: true, created: true, content: created.content, path: created.path }
+      : { exists: false, content: '' };
+  } catch (e) {
+    console.error('[telegram-manager] read memory error:', e?.message || e);
+    return { exists: false, content: '', error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('seed-telegram-conversations', async () => {
+  try {
+    return seedTelegramConversationsFromRuntime();
+  } catch (e) {
+    console.error('[telegram-manager] seed error:', e?.message || e);
+    return { success: false, seeded: [], error: e?.message || String(e) };
+  }
+});
 
 // Manual smoke test: send a real Telegram message to the CEO. The strongest
 // possible proof — if this succeeds the channel is end-to-end working.

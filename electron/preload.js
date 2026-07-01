@@ -136,6 +136,10 @@ contextBridge.exposeInMainWorld('claw', {
   // Telegram behavior settings (mirrors Zalo behavior pattern)
   getTelegramBehavior: () => ipcRenderer.invoke('get-telegram-behavior'),
   saveTelegramBehavior: (behavior) => ipcRenderer.invoke('save-telegram-behavior', behavior),
+  listTelegramConversations: () => ipcRenderer.invoke('list-telegram-conversations'),
+  saveTelegramConversationSettings: (payload) => ipcRenderer.invoke('save-telegram-conversation-settings', payload),
+  readTelegramConversationMemory: (chatId) => ipcRenderer.invoke('read-telegram-conversation-memory', chatId),
+  seedTelegramConversations: () => ipcRenderer.invoke('seed-telegram-conversations'),
 
   // Channel readiness probes — real proof channels can receive messages
   checkTelegramReady: () => ipcRenderer.invoke('check-telegram-ready'),

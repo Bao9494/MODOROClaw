@@ -2,8 +2,8 @@
   "generatedBy": "electron/scripts/generate-system-map.js",
   "counts": {
     "apiRoutes": 83,
-    "ipcHandlers": 144,
-    "preloadBridges": 137,
+    "ipcHandlers": 148,
+    "preloadBridges": 141,
     "dashboardPages": 12,
     "capabilityContracts": 2
   },
@@ -1070,6 +1070,10 @@
       "source": "electron/lib/dashboard-ipc.js"
     },
     {
+      "channel": "list-telegram-conversations",
+      "source": "electron/lib/dashboard-ipc.js"
+    },
+    {
       "channel": "list-zalo-friends",
       "source": "electron/lib/dashboard-ipc.js"
     },
@@ -1135,6 +1139,10 @@
     },
     {
       "channel": "queue-follow-up",
+      "source": "electron/lib/dashboard-ipc.js"
+    },
+    {
+      "channel": "read-telegram-conversation-memory",
       "source": "electron/lib/dashboard-ipc.js"
     },
     {
@@ -1206,6 +1214,10 @@
       "source": "electron/lib/dashboard-ipc.js"
     },
     {
+      "channel": "save-telegram-conversation-settings",
+      "source": "electron/lib/dashboard-ipc.js"
+    },
+    {
       "channel": "save-wizard-config",
       "source": "electron/lib/dashboard-ipc.js"
     },
@@ -1235,6 +1247,10 @@
     },
     {
       "channel": "seed-group-history-now",
+      "source": "electron/lib/dashboard-ipc.js"
+    },
+    {
+      "channel": "seed-telegram-conversations",
       "source": "electron/lib/dashboard-ipc.js"
     },
     {
@@ -1701,6 +1717,11 @@
       "source": "electron/preload.js"
     },
     {
+      "name": "listTelegramConversations",
+      "channel": "list-telegram-conversations",
+      "source": "electron/preload.js"
+    },
+    {
       "name": "listZaloFriends",
       "channel": "list-zalo-friends",
       "source": "electron/preload.js"
@@ -1778,6 +1799,11 @@
     {
       "name": "prioritizeCeoMemory",
       "channel": "prioritize-ceo-memory",
+      "source": "electron/preload.js"
+    },
+    {
+      "name": "readTelegramConversationMemory",
+      "channel": "read-telegram-conversation-memory",
       "source": "electron/preload.js"
     },
     {
@@ -1866,6 +1892,11 @@
       "source": "electron/preload.js"
     },
     {
+      "name": "saveTelegramConversationSettings",
+      "channel": "save-telegram-conversation-settings",
+      "source": "electron/preload.js"
+    },
+    {
       "name": "saveWizardConfig",
       "channel": "save-wizard-config",
       "source": "electron/preload.js"
@@ -1898,6 +1929,11 @@
     {
       "name": "seedGroupHistoryNow",
       "channel": "seed-group-history-now",
+      "source": "electron/preload.js"
+    },
+    {
+      "name": "seedTelegramConversations",
+      "channel": "seed-telegram-conversations",
       "source": "electron/preload.js"
     },
     {
@@ -2086,19 +2122,19 @@
   "largeSourceFiles": [
     {
       "path": "electron/ui/dashboard.html",
-      "bytes": 488123
+      "bytes": 505299
     },
     {
       "path": "electron/lib/dashboard-ipc.js",
-      "bytes": 253046
+      "bytes": 255466
     },
     {
       "path": "electron/lib/cron-api.js",
-      "bytes": 168276
+      "bytes": 168802
     },
     {
       "path": "electron/lib/cron.js",
-      "bytes": 130556
+      "bytes": 131438
     },
     {
       "path": "electron/ui/wizard.html",
@@ -2110,7 +2146,7 @@
     },
     {
       "path": "electron/lib/channels.js",
-      "bytes": 94626
+      "bytes": 94957
     },
     {
       "path": "electron/lib/gateway.js",
@@ -2130,15 +2166,15 @@
     },
     {
       "path": "electron/lib/workspace.js",
-      "bytes": 52556
+      "bytes": 52742
     },
     {
       "path": "electron/lib/vendor-patches.js",
-      "bytes": 49200
+      "bytes": 50077
     },
     {
       "path": "electron/lib/nine-router.js",
-      "bytes": 46625
+      "bytes": 47402
     },
     {
       "path": "electron/lib/skill-manager.js",
@@ -2154,7 +2190,7 @@
     },
     {
       "path": "electron/lib/ceo-memory.js",
-      "bytes": 35886
+      "bytes": 36541
     },
     {
       "path": "electron/lib/media-library.js",
@@ -2167,6 +2203,10 @@
     {
       "path": "electron/ui/splash.html",
       "bytes": 27419
+    },
+    {
+      "path": "electron/lib/telegram-memory.js",
+      "bytes": 23527
     },
     {
       "path": "electron/lib/migration.js",

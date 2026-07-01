@@ -26,6 +26,8 @@ Bot dùng `web_fetch` gọi `http://127.0.0.1:20200/api/cron/*`. KHÔNG ghi file
 - API chỉ bind localhost (127.0.0.1)
 - Mọi lệnh mutation (create/delete/toggle) yêu cầu phiên CEO Telegram đã xác thực
 - Phiên Telegram CEO tự gắn header nội bộ; bot KHÔNG đọc `cron-api-token.txt`, KHÔNG thêm `token=<token>` vào URL
+- Cron agent tạo từ Telegram sẽ lưu `telegramTarget` theo ngữ cảnh chat tạo cron; khi chạy ưu tiên `explicitTarget` → `replyChatId` → `originChatId` → fallback CEO/sticky.
+- Telegram cron target được chuẩn hóa qua `electron/lib/telegram-routing.js`; không để `cron-api.js` và `cron.js` tự giữ resolver riêng.
 - Inbound.ts command-block chặn mọi mention của API URL từ Zalo
 - Max 20 cron, max 500 ký tự content, tối thiểu 5 phút/lần
 - Mỗi cron tạo qua API sẽ gửi alert cho CEO
