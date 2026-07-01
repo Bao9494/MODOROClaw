@@ -22,6 +22,10 @@ function readIfExists(file) {
   try { return fs.readFileSync(file, 'utf8'); } catch { return null; }
 }
 
+function normalizeLineEndings(value) {
+  return value === null ? null : value.replace(/\r\n/g, '\n');
+}
+
 const map = buildSystemMap();
 const json = stableJson(map);
 const text = renderSystemMapText(map);
@@ -29,15 +33,17 @@ const text = renderSystemMapText(map);
 if (CHECK) {
   const currentJson = readIfExists(jsonPath);
   const currentText = readIfExists(textPath);
-  const stale = currentJson !== json || currentText !== text;
+  const normalizedJson = normalizeLineEndings(currentJson);
+  const normalizedText = normalizeLineEndings(currentText);
+  const stale = normalizedJson !== json || normalizedText !== text;
   if (stale) {
     console.error('[system-map] generated map is stale. Run: npm run map:generate');
     if (currentJson === null) console.error('[system-map] missing docs/generated/system-map.json');
     if (currentText === null) console.error('[system-map] missing docs/generated/system-map.txt');
-    if (currentJson && currentJson !== json) {
-      const cLines = currentJson.split('\n');
+    if (normalizedJson && normalizedJson !== json) {
+      const cLines = normalizedJson.split('\n');
       const gLines = json.split('\n');
-      console.error(`[system-map] json diff: committed=${cLines.length} lines (${currentJson.length} chars), generated=${gLines.length} lines (${json.length} chars)`);
+      console.error(`[system-map] json diff: committed=${cLines.length} lines (${normalizedJson.length} chars), generated=${gLines.length} lines (${json.length} chars)`);
       for (let i = 0; i < Math.max(cLines.length, gLines.length); i++) {
         if (cLines[i] !== gLines[i]) {
           console.error(`[system-map] first diff at line ${i + 1}:`);
