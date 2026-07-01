@@ -1413,22 +1413,29 @@ try {
 // =========================================================================
 // TEST 12: Preload bridge ↔ ipcMain.handle parity
 // Every ipcRenderer.invoke('xxx') in preload.js must have a matching
-// ipcMain.handle('xxx') in dashboard-ipc.js (or main.js). Missing handler
+// ipcMain.handle('xxx') in dashboard-ipc.js, registered child IPC modules,
+// or main.js. Missing handler
 // = silent Promise hang at runtime → Dashboard button does nothing.
 // =========================================================================
 section('Preload ↔ IPC handler parity');
 try {
   const preloadSrc = fs.readFileSync(path.join(__dirname, '..', 'preload.js'), 'utf-8');
-  const ipcSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'dashboard-ipc.js'), 'utf-8');
-  const mainSrc = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf-8');
+  const handlerFiles = [
+    path.join(__dirname, '..', 'lib', 'dashboard-ipc.js'),
+    path.join(__dirname, '..', 'lib', 'chat.js'),
+    path.join(__dirname, '..', 'main.js'),
+  ];
   const invokeRe = /ipcRenderer\.invoke\(['"]([^'"]+)['"]/g;
   const handleRe = /\.handle\(['"]([^'"]+)['"]/g;
   const preloadChannels = new Set();
   let im;
   while ((im = invokeRe.exec(preloadSrc)) !== null) preloadChannels.add(im[1]);
   const handleChannels = new Set();
-  while ((im = handleRe.exec(ipcSrc)) !== null) handleChannels.add(im[1]);
-  while ((im = handleRe.exec(mainSrc)) !== null) handleChannels.add(im[1]);
+  for (const fp of handlerFiles) {
+    const src = fs.readFileSync(fp, 'utf-8');
+    handleRe.lastIndex = 0;
+    while ((im = handleRe.exec(src)) !== null) handleChannels.add(im[1]);
+  }
   const orphanBridges = [...preloadChannels].filter(ch => !handleChannels.has(ch));
   if (orphanBridges.length > 0) {
     fail('preload↔ipc parity', `preload.js calls ipcRenderer.invoke for channels with NO handler: [${orphanBridges.join(', ')}] — these will silently hang at runtime`);
