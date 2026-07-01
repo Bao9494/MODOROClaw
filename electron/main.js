@@ -326,6 +326,19 @@ function createWindow() {
     }
   });
 
+  // License gate (membership builds only) - blocks app pages until a valid key is present.
+  const isMembershipBuild = require('./package.json').membership === true;
+  if (isMembershipBuild) {
+    const license = require('./lib/license');
+    const ls = license.checkLicenseStatus();
+    if (ls.status === 'no_license' || ls.status === 'invalid' || ls.status === 'locked' || ls.status === 'expired') {
+      console.log('[createWindow] membership build, license status:', ls.status, '-> license.html');
+      ctx.mainWindow.loadFile(path.join(__dirname, 'ui', 'license.html'));
+      return;
+    }
+    console.log('[createWindow] membership build, license valid');
+  }
+
   if (!openclawBin) {
     console.error('[createWindow] → no-openclaw.html (findOpenClawBinSync returned null)');
     ctx.mainWindow.loadFile(path.join(__dirname, 'ui', 'no-openclaw.html'));
@@ -849,6 +862,47 @@ app.whenReady().then(async () => {
   // Deferred from before createWindow — perf optimization (200-800ms saved on cold boot)
   setTimeout(() => { try { initEmbedder(); } catch (e) { console.warn('[boot] initEmbedder error:', e?.message || e); } }, 0);
   setTimeout(() => { try { bootDiagRunFullCheck(); } catch (e) { console.error('[boot-diag] error:', e?.message || e); } }, 2000);
+
+  // License revalidation (membership builds only): signature check at boot, revocation check in background.
+  if (require('./package.json').membership === true) {
+    setTimeout(async () => {
+      try {
+        const license = require('./lib/license');
+        const ls = license.checkLicenseStatus();
+        if (ls.status === 'expired') {
+          sendCeoAlert('[Bản quyền] Bản quyền 9BizClaw đã hết hạn. Liên hệ tech@modoro.com.vn để gia hạn.');
+        } else if (ls.status === 'valid' && ls.daysLeft !== null && ls.daysLeft <= 14) {
+          sendCeoAlert('[Bản quyền] Bản quyền 9BizClaw sẽ hết hạn trong ' + ls.daysLeft + ' ngày. Liên hệ gia hạn sớm.');
+        }
+        if (ls.status === 'valid') {
+          const result = await license.revalidateLicense();
+          console.log('[license] revalidation:', result ? 'ok (not revoked)' : 'revoked or check failed');
+          if (!result) {
+            sendCeoAlert('[Bản quyền] Key đã bị thu hồi. Liên hệ tech@modoro.com.vn.');
+            if (ctx.mainWindow && !ctx.mainWindow.isDestroyed()) {
+              ctx.mainWindow.loadFile(path.join(__dirname, 'ui', 'license.html'));
+            }
+          }
+        }
+      } catch (e) { console.error('[license] check error:', e?.message); }
+    }, 15000);
+
+    setInterval(async () => {
+      try {
+        const license = require('./lib/license');
+        const ls = license.checkLicenseStatus();
+        if (ls.status !== 'valid') return;
+        const result = await license.revalidateLicense();
+        if (!result) {
+          console.warn('[license] periodic revalidation: revoked');
+          sendCeoAlert('[Bản quyền] Key đã bị thu hồi. Liên hệ tech@modoro.com.vn.');
+          if (ctx.mainWindow && !ctx.mainWindow.isDestroyed()) {
+            ctx.mainWindow.loadFile(path.join(__dirname, 'ui', 'license.html'));
+          }
+        }
+      } catch (e) { console.error('[license] periodic revalidation error:', e?.message); }
+    }, 2 * 60 * 60 * 1000);
+  }
 
   // CEO memory maintenance at boot: purge accumulated cron-log task memories.
   // The deterministic purge (trimOldTaskEntries: DELETE task/source=auto) lived

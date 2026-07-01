@@ -2,8 +2,8 @@
   "generatedBy": "electron/scripts/generate-system-map.js",
   "counts": {
     "apiRoutes": 83,
-    "ipcHandlers": 148,
-    "preloadBridges": 141,
+    "ipcHandlers": 151,
+    "preloadBridges": 144,
     "dashboardPages": 12,
     "capabilityContracts": 2
   },
@@ -758,6 +758,10 @@
   ],
   "ipcHandlers": [
     {
+      "channel": "activate-license",
+      "source": "electron/lib/dashboard-ipc.js"
+    },
+    {
       "channel": "add-cron",
       "source": "electron/lib/dashboard-ipc.js"
     },
@@ -843,6 +847,10 @@
     },
     {
       "channel": "cron-diagnostic",
+      "source": "electron/lib/dashboard-ipc.js"
+    },
+    {
+      "channel": "deactivate-license",
       "source": "electron/lib/dashboard-ipc.js"
     },
     {
@@ -963,6 +971,10 @@
     },
     {
       "channel": "get-knowledge-counts",
+      "source": "electron/lib/dashboard-ipc.js"
+    },
+    {
+      "channel": "get-license-status",
       "source": "electron/lib/dashboard-ipc.js"
     },
     {
@@ -1352,6 +1364,11 @@
   ],
   "preloadBridges": [
     {
+      "name": "activateLicense",
+      "channel": "activate-license",
+      "source": "electron/preload.js"
+    },
+    {
       "name": "addCron",
       "channel": "add-cron",
       "source": "electron/preload.js"
@@ -1444,6 +1461,11 @@
     {
       "name": "createUserSkill",
       "channel": "create-user-skill",
+      "source": "electron/preload.js"
+    },
+    {
+      "name": "deactivateLicense",
+      "channel": "deactivate-license",
       "source": "electron/preload.js"
     },
     {
@@ -1589,6 +1611,11 @@
     {
       "name": "getKnowledgeCounts",
       "channel": "get-knowledge-counts",
+      "source": "electron/preload.js"
+    },
+    {
+      "name": "getLicenseStatus",
+      "channel": "get-license-status",
       "source": "electron/preload.js"
     },
     {
@@ -2122,11 +2149,15 @@
   "largeSourceFiles": [
     {
       "path": "electron/ui/dashboard.html",
-      "bytes": 505299
+      "bytes": 505302
     },
     {
       "path": "electron/lib/dashboard-ipc.js",
-      "bytes": 255466
+      "bytes": 256279
+    },
+    {
+      "path": "electron/lib/license.js",
+      "bytes": 187389
     },
     {
       "path": "electron/lib/cron-api.js",

@@ -1,8 +1,7 @@
 {
   "name": "9bizclaw",
-  "version": "2.0.0-free",
-  "edition": "free",
-  "membership": false,
+  "version": "2.4.23",
+  "membership": true,
   "description": "9BizClaw — Trợ Lý AI Cho CEO (OpenClaw Desktop)",
   "author": "9Biz",
   "repository": {

@@ -5181,6 +5181,31 @@ ipcMain.handle('get-app-version', async () => {
   try { return app.getVersion(); } catch { return ''; }
 });
 
+// ---- License IPC handlers (membership builds only) ----
+ipcMain.handle('activate-license', async (_event, { key }) => {
+  const license = require('./license');
+  try {
+    const result = await license.activateLicense(key);
+    if (!result.success) return result;
+    const configured = isOpenClawConfigured() && hasCompletedOnboarding();
+    return { ...result, configured };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+ipcMain.handle('get-license-status', async () => {
+  const license = require('./license');
+  const status = license.checkLicenseStatus();
+  status.machineId = license.getMachineId();
+  return status;
+});
+
+ipcMain.handle('deactivate-license', async () => {
+  const license = require('./license');
+  await license.clearLicense();
+  return { success: true };
+});
 
 ipcMain.handle('toggle-bot', async () => {
   if (ctx.botRunning) {

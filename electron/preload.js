@@ -227,6 +227,11 @@ contextBridge.exposeInMainWorld('claw', {
   deleteMediaAsset: (id) => ipcRenderer.invoke('delete-media-asset', id),
   pickMediaAssetFile: () => ipcRenderer.invoke('pick-media-asset-file'),
 
+  // License (membership builds only)
+  activateLicense: (key) => ipcRenderer.invoke('activate-license', { key }),
+  getLicenseStatus: () => ipcRenderer.invoke('get-license-status'),
+  deactivateLicense: () => ipcRenderer.invoke('deactivate-license'),
+
   // Events
   onBotStatus: (callback) => {
     ipcRenderer.removeAllListeners('bot-status');
