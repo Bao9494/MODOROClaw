@@ -6,6 +6,22 @@
 
 ## 2026-07-08
 
+### Windows local unsigned build guard
+
+**File(s):** `electron/scripts/build-win.js`
+
+**Root cause:** When `electron-builder --win` fails while `updates.js` is temporarily obfuscated, `build-win.js` used `process.exit()` inside `run()`, so the `finally` restore block could be skipped. On this VM, `winCodeSign` extraction also fails because Windows cannot create symlinks without the required privilege.
+
+**Fix/Change:**
+- Make `run()` throw instead of calling `process.exit()` directly, so failed builder commands still execute the obfuscation restore `finally` block.
+- Add `LOCAL_UNSIGNED_BUILD=1` support to pass `--config.win.signAndEditExecutable=false` for local verification builds only. Normal production builds keep the original signed/editable executable path.
+
+**Verification:** `npm run guard:obfuscation-residue` PASS; `LOCAL_UNSIGNED_BUILD=1 CSC_IDENTITY_AUTO_DISCOVERY=false npm run build:win` PASS and produced `dist/9BizClaw Setup 2.4.23.exe`.
+
+**State:** Local unsigned installer can be used for machine verification; production signed build still needs a signing-capable environment or symlink privilege.
+
+---
+
 ### Telegram tier profile scanner
 
 **File(s):** `electron/lib/telegram-memory.js`, `electron/scripts/check-telegram-memory-contract.js`
