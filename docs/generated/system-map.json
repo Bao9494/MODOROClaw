@@ -3010,7 +3010,7 @@
     },
     {
       "path": "electron/lib/channels.js",
-      "bytes": 95211
+      "bytes": 96278
     },
     {
       "path": "electron/lib/fb-schedule.js",
@@ -3034,7 +3034,7 @@
     },
     {
       "path": "electron/lib/workspace.js",
-      "bytes": 65863
+      "bytes": 66237
     },
     {
       "path": "electron/lib/google-api.js",

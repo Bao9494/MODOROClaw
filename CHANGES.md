@@ -6,6 +6,26 @@
 
 ## 2026-07-08
 
+### Telegram runtime capture and tier memory foundation
+
+**File(s):** `electron/lib/telegram-runtime-capture.js`, `electron/lib/channels.js`, `electron/lib/workspace.js`, `electron/scripts/check-telegram-memory-contract.js`, `MEMORY.md`, `docs/plans/2026-07-08-telegram-zalo-full-parity-architecture.md`, `docs/telegram-zalo-architecture-parity.md`
+
+**Root cause:** Telegram đã có directory, session binding và message refs foundation, nhưng dữ liệu thật từ runtime chưa tự chảy vào các tầng đó. Zalo hiệu quả hơn vì inbound/outbound thật tạo được dấu vết theo người/nhóm; Telegram cần nền tương tự trước khi build provider hook sâu hơn.
+
+**Fix/Change:**
+- Thêm `telegram-runtime-capture.js` để một Telegram runtime event có thể cập nhật conversation profile, directory cache, session binding, message refs và profile tầng `telegram-users`/`telegram-groups`.
+- Hook outbound `sendTelegram` và `sendTelegramPhoto` sau khi Telegram API trả `message_id` để nhớ message ref thật và cập nhật directory.
+- Seed thêm `memory/telegram-users` và `memory/telegram-groups` ở workspace chính và agent workspace.
+- Mở rộng contract test để khóa runtime capture, tier profile, outbound hook và workspace seed.
+
+**Tradeoff/Decision:** Chưa hook inbound vendor sâu trong phase này. Outbound hook là điểm ít rủi ro vì nằm trong source chính và chỉ chạy sau khi API Telegram xác nhận thành công.
+
+**Verification:** `check-telegram-memory-contract.js` PASS; `node --check` cho module mới, `channels.js`, `workspace.js` và contract PASS.
+
+**State:** Phase 5 runtime capture foundation done in source branch; chưa build/cài runtime.
+
+---
+
 ### Telegram UI Zalo-parity split manager
 
 **File(s):** `electron/ui/dashboard.html`, `electron/scripts/check-telegram-memory-contract.js`, `docs/plans/2026-07-08-telegram-zalo-full-parity-architecture.md`

@@ -30,6 +30,7 @@ async function run() {
   const inbound = require('../lib/telegram-inbound-context');
   const sessionBindings = require('../lib/telegram-session-bindings');
   const messageRefs = require('../lib/telegram-message-refs');
+  const runtimeCapture = require('../lib/telegram-runtime-capture');
   try {
     mem.cleanupCeoMemoryTimers?.();
     const cronSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'cron.js'), 'utf-8');
@@ -137,6 +138,33 @@ async function run() {
       && inboundCtx.latestMessageRef?.messageId === '123'
       && inbound.formatTelegramInboundContextBlock(inboundCtx).includes('<telegram-inbound-context trusted="true">'),
       JSON.stringify(inboundCtx));
+    const capturedRuntime = runtimeCapture.captureTelegramRuntimeEvent({
+      direction: 'inbound',
+      chatId: '-1003857797941',
+      chatType: 'supergroup',
+      title: 'LLK Agency (GMT +7) - LLK-999999',
+      senderId: '8406640669',
+      senderName: 'Anh Bao',
+      senderRole: 'ceo',
+      threadId: '7',
+      messageId: '456',
+      replyToMessageId: '123',
+      sessionKey: 'agent:main:telegram:group:-1003857797941:thread:7',
+      text: 'cap nhat memory Telegram runtime',
+      timestamp: Date.now(),
+    });
+    const capturedGroupProfile = runtimeCapture.getTelegramTierProfilePath({ chatId: '-1003857797941', chatType: 'supergroup' });
+    const capturedUserProfile = runtimeCapture.getTelegramTierProfilePath({ senderId: '8406640669' });
+    assert('telegram runtime capture updates refs bindings directory and tier profiles',
+      capturedRuntime
+      && capturedRuntime.conversation?.chatId === '-1003857797941'
+      && capturedRuntime.messageRef?.messageId === '456'
+      && messageRefs.getLatestTelegramMessageForThread({ chatId: '-1003857797941', threadId: '7' })?.messageId === '456'
+      && sessionBindings.resolveTelegramSessionByConversation({ chatId: '-1003857797941', threadId: '7' })?.sessionKey === capturedRuntime.binding?.sessionKey
+      && fs.existsSync(capturedGroupProfile)
+      && fs.existsSync(capturedUserProfile)
+      && tg.listTelegramDirectory({ query: 'LLK-999999', kind: 'group', enabled: true }).count >= 1,
+      JSON.stringify(capturedRuntime));
     assert('telegram entity id is stable', tg.telegramEntityId('-1003857797941') === 'telegram:-1003857797941');
     assert('telegram memory discovers OpenClaw session metadata',
       telegramMemorySrc.includes('collectOpenclawSessionCandidates')
@@ -154,7 +182,11 @@ async function run() {
     assert('ceo-memory allows explicit telegram customer scope only via hints', memorySrc.includes("ch === 'telegram' && hints.includes('customer')"), 'missing explicit customer hint gate');
     assert('ceo-memory actor-scopes telegram customer memory', memorySrc.includes("_requiresActorScopedCustomerFilter(channel, allowedScopes)") && memorySrc.includes("'telegram_chat'"), 'missing telegram actor filter');
     assert('cron injects telegram conversation context when target exists', cronSrc.includes("require('./telegram-memory')") && cronSrc.includes('telegramTarget'));
-    assert('workspace seeds telegram memory dir', workspaceSrc.includes("'memory', 'telegram-chats'"));
+    assert('workspace seeds telegram memory dirs',
+      workspaceSrc.includes("'memory', 'telegram-chats'")
+      && workspaceSrc.includes("'memory', 'telegram-users'")
+      && workspaceSrc.includes("'memory', 'telegram-groups'"),
+      'workspace does not seed all Telegram memory tiers');
     assert('telegram manager IPC handlers exist', dashboardSrc.includes("list-telegram-conversations") && dashboardSrc.includes("save-telegram-conversation-settings") && dashboardSrc.includes("seed-telegram-conversations"), 'missing dashboard IPC handlers');
     assert('telegram manager preload bridge exists', preloadSrc.includes('listTelegramConversations') && preloadSrc.includes('saveTelegramConversationSettings') && preloadSrc.includes('readTelegramConversationMemory'), 'missing preload bridge');
     assert('telegram manager UI exists',
@@ -239,6 +271,11 @@ async function run() {
       && channelsSrc.includes('effectiveChatId')
       && channelsSrc.includes('targetChatId'),
       'sendTelegramPhoto missing targetChatId support');
+    assert('telegram outbound runtime capture hook exists',
+      channelsSrc.includes("require('./telegram-runtime-capture')")
+      && channelsSrc.includes("source: 'sendTelegram'")
+      && channelsSrc.includes("source: 'sendTelegramPhoto'"),
+      'channels.js missing Telegram outbound runtime capture hook');
     assert('appointment Telegram push targets honor toId',
       appointmentsSrc.includes('sendTelegram(text, { targetChatId: target.toId || null })'),
       'appointments Telegram target ignores toId');

@@ -134,13 +134,13 @@ Large Source Files
 - electron/lib/cron.js: 133310 bytes
 - electron/ui/wizard.html: 117791 bytes
 - electron/lib/knowledge.js: 96863 bytes
-- electron/lib/channels.js: 95211 bytes
+- electron/lib/channels.js: 96278 bytes
 - electron/lib/fb-schedule.js: 94418 bytes
 - electron/lib/gateway.js: 84512 bytes
 - electron/lib/runtime-installer.js: 75692 bytes
 - electron/lib/vendor-patches.js: 74829 bytes
 - electron/ui/preview-telegram-redesign.html: 66621 bytes
-- electron/lib/workspace.js: 65863 bytes
+- electron/lib/workspace.js: 66237 bytes
 - electron/lib/google-api.js: 65108 bytes
 - electron/lib/config.js: 61710 bytes
 - electron/lib/fb-publisher.js: 57530 bytes

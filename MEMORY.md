@@ -14,10 +14,10 @@ Các file này chứa ngữ cảnh quan trọng. Nạp khi bắt đầu phiên.
 |-----|---------|----------|---------------------|
 | CEO | Chủ nhân | Đọc `IDENTITY.md` | chủ nhân, sếp, boss |
 
-Bot tự tạo hồ sơ khách trong `memory/zalo-users/<senderId>.md`, `memory/zalo-groups/<groupId>.md` và hồ sơ Telegram trong `memory/telegram-chats/<chatId>.md`.
+Bot tự tạo hồ sơ khách trong `memory/zalo-users/<senderId>.md`, `memory/zalo-groups/<groupId>.md` và hồ sơ Telegram trong `memory/telegram-chats/<chatId>.md`, `memory/telegram-users/<userId>.md`, `memory/telegram-groups/<chatId>.md`.
 
 ## Quy tắc đi sâu
-1. **Cuộc trò chuyện nhắc đến chat/group Telegram?** -> Tra `/api/telegram/conversations`, rồi nạp `memory/telegram-chats/<chatId>.md`
+1. **Cuộc trò chuyện nhắc đến chat/group Telegram?** -> Tra `/api/telegram/conversations`, rồi nạp `memory/telegram-chats/<chatId>.md`; nếu có profile tầng thì nạp thêm `memory/telegram-groups/<chatId>.md` hoặc `memory/telegram-users/<userId>.md`.
 2. **Telegram role là `internal`?** -> Có thể nạp knowledge/vận hành nội bộ phù hợp.
 3. **Telegram role là `customer`?** -> Chỉ nạp memory scope customer/public đúng chat đó; không nạp memory CEO/nội bộ.
 4. **Cuộc trò chuyện nhắc đến khách Zalo?** -> Nạp file trong `memory/zalo-users/`
@@ -33,7 +33,9 @@ Bot tự tạo hồ sơ khách trong `memory/zalo-users/<senderId>.md`, `memory/
 |------|----------|
 | `memory/zalo-users/<id>.md` | Hồ sơ khách hàng Zalo (tên, tag, lịch sử) |
 | `memory/zalo-groups/<id>.md` | Hồ sơ nhóm Zalo (thành viên, chủ đề) |
-| `memory/telegram-chats/<chatId>.md` | Hồ sơ chat/group Telegram, role, alias, memory theo từng đối tượng |
+| `memory/telegram-chats/<chatId>.md` | Hồ sơ conversation Telegram tổng hợp, giữ tương thích runtime cũ |
+| `memory/telegram-users/<userId>.md` | Hồ sơ người dùng/DM Telegram, được tạo từ runtime capture |
+| `memory/telegram-groups/<chatId>.md` | Hồ sơ nhóm/kênh Telegram, được tạo từ runtime capture |
 | `telegram-directory.json` | Cache directory Telegram: chat/group/channel/private, alias, role, mode, nguồn dữ liệu |
 | `telegram-session-bindings.json` | Cache bind session/agent theo chat hoặc thread Telegram |
 | `telegram-message-refs.json` | Cache message refs Telegram theo chat/thread để reply/edit/delete/pin đúng đích |

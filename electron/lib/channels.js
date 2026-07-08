@@ -6,6 +6,7 @@ const { writeJsonAtomic, sanitizeZaloText, stripTelegramMarkdown } = require('./
 const { getWorkspace, auditLog } = require('./workspace');
 const { writeOpenClawConfigIfChanged } = require('./config');
 const { readOpenclawJsonFile } = require('./openclaw-json');
+const { captureTelegramRuntimeEvent } = require('./telegram-runtime-capture');
 const {
   findGlobalPackageFile, findNodeBin, spawnOpenClawSafe,
 } = require('./boot');
@@ -738,7 +739,22 @@ async function sendTelegram(text, { skipFilter = false, skipPauseCheck = false, 
         res.on('end', async () => {
           try {
             const parsed = JSON.parse(d);
-            if (parsed.ok) { resolve(true); return; }
+            if (parsed.ok) {
+              try {
+                captureTelegramRuntimeEvent({
+                  direction: 'outbound',
+                  source: 'sendTelegram',
+                  targetChatId: effectiveChatId,
+                  chatId: effectiveChatId,
+                  result: parsed.result,
+                  text,
+                });
+              } catch (e) {
+                console.warn('[sendTelegram] runtime capture failed:', e?.message || e);
+              }
+              resolve(true);
+              return;
+            }
             const code = parsed.error_code || res.statusCode;
             const desc = parsed.description || '';
             // 429: rate limit — retry once after retry_after seconds
@@ -837,7 +853,21 @@ async function sendTelegramPhoto(imagePath, caption, optsOrRetry = 0) {
       res.on('end', () => {
         try {
           const parsed = JSON.parse(d);
-          if (parsed.ok) return resolve(true);
+          if (parsed.ok) {
+            try {
+              captureTelegramRuntimeEvent({
+                direction: 'outbound',
+                source: 'sendTelegramPhoto',
+                targetChatId: effectiveChatId,
+                chatId: effectiveChatId,
+                result: parsed.result,
+                caption: caption || '',
+              });
+            } catch (e) {
+              console.warn('[sendTelegramPhoto] runtime capture failed:', e?.message || e);
+            }
+            return resolve(true);
+          }
           if (parsed.error_code === 429 && _retryCount < 3) {
             const wait = ((parsed.parameters && parsed.parameters.retry_after) || 5) * 1000;
             setTimeout(() => sendTelegramPhoto(imagePath, caption, { ...opts, retryCount: _retryCount + 1 }).then(resolve), wait);
