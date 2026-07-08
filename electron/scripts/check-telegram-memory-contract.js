@@ -28,6 +28,8 @@ async function run() {
   const policy = require('../lib/telegram-policy');
   const directory = require('../lib/telegram-directory');
   const inbound = require('../lib/telegram-inbound-context');
+  const sessionBindings = require('../lib/telegram-session-bindings');
+  const messageRefs = require('../lib/telegram-message-refs');
   try {
     mem.cleanupCeoMemoryTimers?.();
     const cronSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'cron.js'), 'utf-8');
@@ -85,6 +87,33 @@ async function run() {
       && directoryEntry.aliases.includes('LLK')
       && directory.scoreTelegramDirectoryEntry(directoryEntry, 'LLK-999999') > 0,
       JSON.stringify(directoryEntry));
+    const bound = sessionBindings.bindTelegramSession({
+      chatId: '-1003857797941',
+      threadId: '7',
+      sessionKey: 'agent:main:telegram:group:-1003857797941:thread:7',
+      agentId: 'main',
+      label: 'LLK Agency',
+    });
+    assert('telegram session binding resolves conversation and session',
+      bound
+      && bound.bindingKey === 'telegram:-1003857797941:thread:7'
+      && sessionBindings.resolveTelegramSessionByConversation({ chatId: '-1003857797941', threadId: '7' })?.sessionKey === bound.sessionKey
+      && sessionBindings.resolveTelegramConversationBySession(bound.sessionKey)?.chatId === '-1003857797941',
+      JSON.stringify(bound));
+    const rememberedRef = messageRefs.rememberTelegramMessageRef({
+      chatId: '-1003857797941',
+      threadId: '7',
+      messageId: '123',
+      replyToMessageId: '122',
+      senderId: '8406640669',
+      sessionKey: bound.sessionKey,
+      text: 'kiem tra LLK',
+    });
+    assert('telegram message refs remember and resolve latest scoped message',
+      rememberedRef
+      && messageRefs.getLatestTelegramMessageForThread({ chatId: '-1003857797941', threadId: '7' })?.messageId === '123'
+      && messageRefs.resolveTelegramMessageRef({ chatId: '-1003857797941', threadId: '7', rawId: 'latest' })?.messageId === '123',
+      JSON.stringify(rememberedRef));
     const inboundCtx = inbound.buildTelegramInboundContext({
       conversation: directoryEntry,
       source: {
@@ -103,7 +132,9 @@ async function run() {
       && inboundCtx.sender.id === '8406640669'
       && inboundCtx.sender.role === 'ceo'
       && inboundCtx.thread.id === '7'
+      && inboundCtx.thread.bindingKey === 'telegram:-1003857797941:thread:7'
       && inboundCtx.message.replyTo === '122'
+      && inboundCtx.latestMessageRef?.messageId === '123'
       && inbound.formatTelegramInboundContextBlock(inboundCtx).includes('<telegram-inbound-context trusted="true">'),
       JSON.stringify(inboundCtx));
     assert('telegram entity id is stable', tg.telegramEntityId('-1003857797941') === 'telegram:-1003857797941');

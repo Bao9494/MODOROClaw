@@ -196,7 +196,8 @@ Test:
 Mục tiêu: agent luôn biết đúng chat, sender, role, scope.
 
 - Thêm context builder chuẩn cho Telegram. (done)
-- Bind session theo `telegram:<chatId>` hoặc `telegram:<chatId>:thread:<topicId>`. (pending)
+- Bind session theo `telegram:<chatId>` hoặc `telegram:<chatId>:thread:<topicId>`. (done ở helper/cache foundation; provider hook pending)
+- Nhớ message refs theo chat/thread để reply/edit/delete/pin sau này. (done ở helper/cache foundation; provider hook pending)
 - Đưa sender role và chat role vào prompt. (done ở memory prompt block nền)
 - Không để cron/agent fallback sang sticky chat khi đã có target Telegram.
 

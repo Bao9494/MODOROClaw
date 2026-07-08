@@ -6,6 +6,26 @@
 
 ## 2026-07-08
 
+### Telegram session binding and message refs foundation
+
+**File(s):** `electron/lib/telegram-session-bindings.js`, `electron/lib/telegram-message-refs.js`, `electron/lib/telegram-inbound-context.js`, `electron/scripts/check-telegram-memory-contract.js`, `docs/plans/2026-07-08-telegram-zalo-full-parity-architecture.md`
+
+**Root cause:** Zalo có `subagent-bindings.ts` và `message-refs.ts` để khóa session/message theo đúng conversation. Telegram mới có context/directory, nhưng chưa có nền để bind session theo `chatId:threadId` hoặc nhớ message refs cho reply/edit/delete/pin sau này.
+
+**Fix/Change:**
+- Thêm `telegram-session-bindings.js` với cache `telegram-session-bindings.json`, binding key `telegram:<chatId>` hoặc `telegram:<chatId>:thread:<threadId>`, resolve theo conversation hoặc session.
+- Thêm `telegram-message-refs.js` với cache `telegram-message-refs.json`, TTL/max, latest message theo chat/thread và resolver `latest/messageId/shortId`.
+- Cho `telegram-inbound-context.js` nhúng `bindingKey` và `latestMessageRef`.
+- Mở rộng contract test để kiểm tra session binding, latest message ref và inbound context có binding/message ref.
+
+**Tradeoff/Decision:** Chưa hook vào Telegram provider để tự nhớ mọi inbound/outbound message. Đây là nền data contract để phase provider/UI sau dùng chung.
+
+**Verification:** `node --check` cho `telegram-session-bindings.js`, `telegram-message-refs.js`, `telegram-inbound-context.js`, `check-telegram-memory-contract.js` PASS; `check-telegram-memory-contract.js` PASS static guards. Runtime DB filtering vẫn skip ở source clone do `better-sqlite3` ABI khác Node hiện tại.
+
+**State:** Phase 3b session/message refs foundation done in source branch; chưa build/cài runtime.
+
+---
+
 ### Telegram inbound context foundation
 
 **File(s):** `electron/lib/telegram-inbound-context.js`, `electron/lib/telegram-memory.js`, `electron/scripts/check-telegram-memory-contract.js`, `docs/plans/2026-07-08-telegram-zalo-full-parity-architecture.md`

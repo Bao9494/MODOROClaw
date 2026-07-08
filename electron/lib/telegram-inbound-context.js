@@ -1,5 +1,8 @@
 'use strict';
 
+const { makeTelegramConversationBindingKey } = require('./telegram-session-bindings');
+const { getLatestTelegramMessageForThread } = require('./telegram-message-refs');
+
 function compactTelegramContextText(value, max = 220) {
   return String(value || '')
     .replace(/[\u0000-\u001F\u007F]/g, ' ')
@@ -66,6 +69,15 @@ function buildTelegramMessageContext(source = {}) {
 function buildTelegramInboundContext({ conversation = {}, source = {}, profile = null, memory = null } = {}) {
   const policy = conversation.policy || {};
   const memories = Array.isArray(memory?.memories) ? memory.memories : [];
+  const thread = buildTelegramThreadContext(source);
+  const bindingKey = makeTelegramConversationBindingKey({
+    chatId: conversation.targetChatId || conversation.chatId,
+    threadId: thread.id,
+  });
+  const latestMessageRef = getLatestTelegramMessageForThread({
+    chatId: conversation.targetChatId || conversation.chatId,
+    threadId: thread.id,
+  });
   return {
     trusted: true,
     channel: 'telegram',
@@ -83,10 +95,21 @@ function buildTelegramInboundContext({ conversation = {}, source = {}, profile =
       label: conversation.label || '',
       aliases: Array.isArray(conversation.aliases) ? conversation.aliases : [],
       scopes: Array.isArray(conversation.scopeHints) ? conversation.scopeHints : [],
+      bindingKey,
     },
     sender: buildTelegramSenderContext(source),
-    thread: buildTelegramThreadContext(source),
+    thread: {
+      ...thread,
+      bindingKey,
+    },
     message: buildTelegramMessageContext(source),
+    latestMessageRef: latestMessageRef ? {
+      messageId: latestMessageRef.messageId,
+      shortId: latestMessageRef.shortId,
+      direction: latestMessageRef.direction,
+      timestamp: latestMessageRef.timestamp,
+      preview: latestMessageRef.preview,
+    } : null,
     memory: {
       profilePath: profile?.path || conversation.profilePath || '',
       profileLoaded: !!profile,
