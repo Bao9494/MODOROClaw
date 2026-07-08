@@ -34,6 +34,7 @@ Bot tự tạo hồ sơ khách trong `memory/zalo-users/<senderId>.md`, `memory/
 | `memory/zalo-users/<id>.md` | Hồ sơ khách hàng Zalo (tên, tag, lịch sử) |
 | `memory/zalo-groups/<id>.md` | Hồ sơ nhóm Zalo (thành viên, chủ đề) |
 | `memory/telegram-chats/<chatId>.md` | Hồ sơ chat/group Telegram, role, alias, memory theo từng đối tượng |
+| `telegram-directory.json` | Cache directory Telegram: chat/group/channel/private, alias, role, mode, nguồn dữ liệu |
 | `knowledge/*/index.md` | Tài liệu doanh nghiệp (công ty, sản phẩm, nhân viên) |
 | `.learnings/LEARNINGS.md` | Bài học từ các phiên trước |
 

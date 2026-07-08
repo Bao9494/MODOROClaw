@@ -6,6 +6,28 @@
 
 ## 2026-07-08
 
+### Telegram directory/rich-cache foundation
+
+**File(s):** `electron/lib/telegram-directory.js`, `electron/lib/telegram-memory.js`, `electron/lib/cron-api.js`, `electron/scripts/check-telegram-memory-contract.js`, `docs/telegram-zalo-architecture-parity.md`, `docs/plans/2026-07-08-telegram-zalo-full-parity-architecture.md`
+
+**Root cause:** Telegram lookup/list vẫn đang là tập hợp heuristics trong `telegram-memory.js`, chưa có lớp directory/cache ổn định như Zalo. Điều này làm UI khó tách group/private/channel và làm agent dễ phải dựa vào tên/trace thay vì một directory canonical.
+
+**Fix/Change:**
+- Thêm `telegram-directory.js` để chuẩn hóa entry theo `chatId`, `targetChatId`, `entityId`, `directoryKind`, `aliases`, `role`, `responseMode`, `toolScope`, `policy`, `sources` và search metadata.
+- Thêm cache file `telegram-directory.json` cùng hàm đọc/ghi/refresh trong `telegram-memory.js`.
+- Cho discover pipeline đọc `directory-cache` trước `settings`, để Dashboard/settings vẫn là override cuối cùng.
+- Cho `listTelegramConversations()` và `findTelegramConversations()` đi qua directory helper thay vì tự sort/search.
+- Thêm API đọc-only `/api/telegram/directory` và refresh cache `/api/telegram/directory/refresh`.
+- Mở rộng contract test để kiểm tra alias/search, cache, settings override cache và route directory.
+
+**Tradeoff/Decision:** Chưa dùng Bot API `getUpdates` để refresh directory vì có nguy cơ xung đột poller Telegram đang chạy. Phase này chỉ gom và chuẩn hóa các nguồn runtime hiện có.
+
+**Verification:** `node --check` cho `telegram-directory.js`, `telegram-memory.js`, `cron-api.js`, `check-telegram-memory-contract.js` PASS; `check-telegram-memory-contract.js` PASS static guards. Runtime DB filtering vẫn skip ở source clone do `better-sqlite3` ABI khác Node hiện tại.
+
+**State:** Phase 2 directory foundation done in source branch; chưa build/cài runtime.
+
+---
+
 ### Telegram full Zalo-parity architecture plan + policy foundation
 
 **File(s):** `electron/lib/telegram-policy.js`, `electron/lib/telegram-memory.js`, `electron/scripts/check-telegram-memory-contract.js`, `docs/telegram-zalo-architecture-parity.md`, `docs/plans/2026-07-08-telegram-zalo-full-parity-architecture.md`

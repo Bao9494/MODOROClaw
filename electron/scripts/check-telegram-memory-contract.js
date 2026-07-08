@@ -26,6 +26,7 @@ async function run() {
   const mem = require('../lib/ceo-memory');
   const tg = require('../lib/telegram-memory');
   const policy = require('../lib/telegram-policy');
+  const directory = require('../lib/telegram-directory');
   try {
     mem.cleanupCeoMemoryTimers?.();
     const cronSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'cron.js'), 'utf-8');
@@ -69,6 +70,20 @@ async function run() {
       && unknownPolicy.toolScope === 'public_only'
       && unknownPolicy.canReply === false,
       JSON.stringify(unknownPolicy));
+    const directoryEntry = directory.buildTelegramDirectoryEntry({
+      chatId: '-1003857797941',
+      chatType: 'supergroup',
+      label: 'LLK Agency (GMT +7) - LLK-999999',
+      aliases: ['LLK-999999', 'LLK'],
+      role: 'internal',
+    });
+    assert('telegram directory builds group entry with alias/search metadata',
+      directoryEntry
+      && directoryEntry.targetChatId === '-1003857797941'
+      && directoryEntry.directoryKind === 'group'
+      && directoryEntry.aliases.includes('LLK')
+      && directory.scoreTelegramDirectoryEntry(directoryEntry, 'LLK-999999') > 0,
+      JSON.stringify(directoryEntry));
     assert('telegram entity id is stable', tg.telegramEntityId('-1003857797941') === 'telegram:-1003857797941');
     assert('telegram memory discovers OpenClaw session metadata',
       telegramMemorySrc.includes('collectOpenclawSessionCandidates')
@@ -76,6 +91,12 @@ async function run() {
       && telegramMemorySrc.includes('groupId')
       && telegramMemorySrc.includes('openclaw-sessions'),
       'missing session metadata collector');
+    assert('telegram memory uses directory cache and helper layer',
+      telegramMemorySrc.includes("require('./telegram-directory')")
+      && telegramMemorySrc.includes('collectDirectoryCacheCandidates')
+      && telegramMemorySrc.includes('refreshTelegramDirectoryFromRuntime')
+      && telegramMemorySrc.includes('directory-cache'),
+      'missing telegram directory layer wiring');
     assert('ceo-memory allows explicit telegram customer scope only via hints', memorySrc.includes("ch === 'telegram' && hints.includes('customer')"), 'missing explicit customer hint gate');
     assert('ceo-memory actor-scopes telegram customer memory', memorySrc.includes("_requiresActorScopedCustomerFilter(channel, allowedScopes)") && memorySrc.includes("'telegram_chat'"), 'missing telegram actor filter');
     assert('cron injects telegram conversation context when target exists', cronSrc.includes("require('./telegram-memory')") && cronSrc.includes('telegramTarget'));
@@ -84,12 +105,30 @@ async function run() {
     assert('telegram manager preload bridge exists', preloadSrc.includes('listTelegramConversations') && preloadSrc.includes('saveTelegramConversationSettings') && preloadSrc.includes('readTelegramConversationMemory'), 'missing preload bridge');
     assert('telegram manager UI exists', uiSrc.includes('tg-conversations-list') && uiSrc.includes('renderTelegramConversations') && uiSrc.includes('switchTelegramConversationTab'), 'missing Telegram manager UI');
 
+    tg.writeTelegramDirectoryCache({
+      entries: [{
+        chatId: '-1003857797941',
+        chatType: 'supergroup',
+        role: 'customer',
+        label: 'Cached LLK',
+        aliases: ['LLK-old'],
+        enabled: false,
+      }],
+    });
+    const cache = tg.readTelegramDirectoryCache();
+    assert('telegram directory cache persists normalized entries',
+      cache.entries.length === 1
+      && cache.entries[0].chatId === '-1003857797941'
+      && cache.entries[0].directoryKind === 'group',
+      JSON.stringify(cache));
+
     const saved = tg.saveTelegramConversationSettings({
       conversations: [{
         chatId: '-1003857797941',
         chatType: 'supergroup',
         role: 'internal',
         responseMode: 'all',
+        aliases: ['LLK-999999', 'LLK'],
         label: 'Nhom noi bo Telegram',
         enabled: true,
       }],
@@ -102,11 +141,20 @@ async function run() {
       && savedRow.responseMode === 'all'
       && savedRow.toolScope === 'internal',
       JSON.stringify(savedRow));
+    const directoryList = tg.listTelegramDirectory({ query: 'LLK-999999', kind: 'group', enabled: true });
+    assert('telegram directory lookup respects settings override over cache',
+      directoryList.count === 1
+      && directoryList.conversations[0].role === 'internal'
+      && directoryList.conversations[0].enabled === true
+      && directoryList.conversations[0].targetChatId === '-1003857797941',
+      JSON.stringify(directoryList));
     const lookup = tg.findTelegramConversations({ query: 'Nhom noi bo Telegram', autoMode: true, enabled: true });
     assert('telegram conversation lookup resolves target by name', lookup.picked === '-1003857797941' && lookup.pickedConversation?.role === 'internal', JSON.stringify(lookup));
 
     assert('cron-api exposes Telegram lookup/send/profile/seed routes',
       cronApiSrc.includes("urlPath === '/api/telegram/conversations'")
+      && cronApiSrc.includes("urlPath === '/api/telegram/directory'")
+      && cronApiSrc.includes("urlPath === '/api/telegram/directory/refresh'")
       && cronApiSrc.includes("urlPath === '/api/telegram/send'")
       && cronApiSrc.includes("urlPath === '/api/telegram/profile'")
       && cronApiSrc.includes("urlPath === '/api/telegram/seed'"),

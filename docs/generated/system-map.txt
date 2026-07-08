@@ -1,7 +1,7 @@
 9BizClaw Generated System Map
 
 Counts
-- apiRoutes: 87
+- apiRoutes: 89
 - ipcHandlers: 233
 - preloadBridges: 226
 - dashboardPages: 21
@@ -80,6 +80,8 @@ API Routes
 - /api/skill/test-exec [local-api]
 - /api/system/info [local-api]
 - /api/telegram/conversations [local-api]
+- /api/telegram/directory [local-api]
+- /api/telegram/directory/refresh [local-api]
 - /api/telegram/profile [local-api]
 - /api/telegram/seed [local-api]
 - /api/telegram/send [local-api]
@@ -128,7 +130,7 @@ Large Source Files
 - electron/ui/dashboard.html: 783151 bytes
 - electron/lib/dashboard-ipc.js: 319381 bytes
 - electron/lib/license.js: 187389 bytes
-- electron/lib/cron-api.js: 182948 bytes
+- electron/lib/cron-api.js: 183930 bytes
 - electron/lib/cron.js: 133310 bytes
 - electron/ui/wizard.html: 117791 bytes
 - electron/lib/knowledge.js: 96863 bytes

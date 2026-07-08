@@ -57,6 +57,7 @@ Kết luận: hiệu quả chính đến từ việc filter trước khi scoring
 | Memory injection khi cron Telegram chạy | `cron.js` nạp `<telegram-conversation-context>` nếu job có `telegramTarget` | Đã thêm |
 | UI quản lý conversation | Tab Telegram có danh sách chat/group, bộ lọc CEO/nội bộ/khách, nút xem hồ sơ, role select và bật/tắt conversation | Đã thêm |
 | Seed danh sách conversation | `telegram-memory.js` đọc `openclaw.json`, `custom-crons.json`, log/cache Telegram và profile đã có để seed `memory/telegram-chats/<chatId>.md` | Đã thêm nền tảng |
+| Directory/cache Telegram | `electron/lib/telegram-directory.js`, `telegram-directory.json`, `/api/telegram/directory`, `/api/telegram/directory/refresh` | Đã thêm nền tảng |
 | Regression guard | `smoke-test.js`, `check-media-library-contract.js`, `check-telegram-memory-contract.js` | Đã thêm |
 
 ## Mô hình Telegram mới
@@ -80,7 +81,7 @@ Kết luận: hiệu quả chính đến từ việc filter trước khi scoring
 
 ## Trạng thái full parity
 
-Bản 2026-07-08 mới đạt nền tảng parity ở routing, API lookup/send, profile conversation và một phần UI quản lý. Telegram chưa đạt full parity với Zalo vì còn thiếu channel spine riêng, policy engine, inbound context thống nhất, session binding theo conversation, directory/cache giàu và UI 2 cột như Zalo.
+Bản 2026-07-08 mới đạt nền tảng parity ở routing, API lookup/send, profile conversation, policy foundation, directory/cache foundation và một phần UI quản lý. Telegram chưa đạt full parity với Zalo vì còn thiếu channel spine riêng, inbound context thống nhất, session binding theo conversation, history/message refs giàu, member/topic cache và UI 2 cột như Zalo.
 
 Plan triển khai triệt để nằm ở `docs/plans/2026-07-08-telegram-zalo-full-parity-architecture.md`.
 

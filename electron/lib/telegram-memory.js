@@ -15,10 +15,16 @@ const {
   normalizeTelegramResponseMode,
   normalizeTelegramEnabled,
   buildTelegramConversationPolicy,
-  compareTelegramRoles,
 } = require('./telegram-policy');
+const {
+  buildTelegramDirectoryEntry,
+  sortTelegramDirectoryEntries,
+  filterTelegramDirectoryEntries,
+  summarizeTelegramDirectory,
+} = require('./telegram-directory');
 
 const SETTINGS_FILE = 'telegram-conversation-settings.json';
+const DIRECTORY_FILE = 'telegram-directory.json';
 const PROFILE_DIR = path.join('memory', 'telegram-chats');
 
 function sanitizeTelegramChatId(value) {
@@ -87,6 +93,11 @@ function getTelegramSettingsPath(workspace = getWorkspace()) {
   return path.join(workspace, SETTINGS_FILE);
 }
 
+function getTelegramDirectoryPath(workspace = getWorkspace()) {
+  if (!workspace) return null;
+  return path.join(workspace, DIRECTORY_FILE);
+}
+
 function readTelegramConversationSettings(workspace = getWorkspace()) {
   if (!workspace) return {};
   const p = getTelegramSettingsPath(workspace);
@@ -125,6 +136,7 @@ function writeTelegramConversationSettings(settings, workspace = getWorkspace())
       responseMode: policy.responseMode,
       toolScope: policy.toolScope,
       enabled: policy.enabled,
+      aliases: value.aliases || value.alias || [],
       updatedAt: value.updatedAt || new Date().toISOString(),
     };
   }
@@ -195,6 +207,8 @@ function addTelegramConversationCandidate(map, candidate = {}) {
     toolScope: policy.toolScope,
     enabled: policy.enabled,
     policy,
+    aliases: candidate.aliases || candidate.alias || prev.aliases || [],
+    username: candidate.username || candidate.handle || prev.username || '',
     profilePath: candidate.profilePath || prev.profilePath || '',
     lastSeen: candidate.lastSeen || prev.lastSeen || '',
     msgCount: Number.isFinite(Number(candidate.msgCount)) ? Number(candidate.msgCount) : (Number(prev.msgCount) || 0),
@@ -253,6 +267,16 @@ function listTelegramProfiles() {
 
 function collectProfileCandidates(map) {
   for (const profile of listTelegramProfiles()) addTelegramConversationCandidate(map, profile);
+}
+
+function collectDirectoryCacheCandidates(map, cache = readTelegramDirectoryCache()) {
+  for (const entry of cache.entries || []) {
+    addTelegramConversationCandidate(map, {
+      ...entry,
+      chatId: entry.chatId || entry.targetChatId,
+      source: 'directory-cache',
+    });
+  }
 }
 
 function collectOpenclawConfigCandidates(map) {
@@ -339,6 +363,70 @@ function collectTelegramTextCandidates(text, map, source) {
       });
     }
   }
+}
+
+function readTelegramDirectoryCache(workspace = getWorkspace()) {
+  if (!workspace) return { version: 1, entries: [] };
+  const p = getTelegramDirectoryPath(workspace);
+  try {
+    if (!p || !fs.existsSync(p)) return { version: 1, entries: [] };
+    const parsed = JSON.parse(fs.readFileSync(p, 'utf-8'));
+    const entries = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed?.entries)
+        ? parsed.entries
+        : Object.values(parsed?.entries || parsed?.directory || {});
+    return {
+      version: Number(parsed?.version) || 1,
+      updatedAt: parsed?.updatedAt || '',
+      entries: entries.filter(v => v && typeof v === 'object'),
+    };
+  } catch {
+    return { version: 1, entries: [] };
+  }
+}
+
+function writeTelegramDirectoryCache(input = {}, workspace = getWorkspace()) {
+  const p = getTelegramDirectoryPath(workspace);
+  if (!p) return false;
+  const entries = Array.isArray(input)
+    ? input
+    : Array.isArray(input.entries)
+      ? input.entries
+      : Array.isArray(input.conversations)
+        ? input.conversations
+        : [];
+  const cleanEntries = entries
+    .map(entry => buildTelegramDirectoryEntry(entry))
+    .filter(Boolean)
+    .map(entry => ({
+      chatId: entry.chatId,
+      targetChatId: entry.targetChatId,
+      entityId: entry.entityId,
+      label: entry.label,
+      username: entry.username,
+      aliases: entry.aliases,
+      chatType: entry.chatType,
+      directoryKind: entry.directoryKind,
+      role: entry.role,
+      audience: entry.audience,
+      scopeHints: entry.scopeHints,
+      responseMode: entry.responseMode,
+      toolScope: entry.toolScope,
+      enabled: entry.enabled,
+      profilePath: entry.profilePath || '',
+      lastSeen: entry.lastSeen || '',
+      msgCount: Number(entry.msgCount) || 0,
+      summary: entry.summary || '',
+      sources: entry.sources || [],
+      mtimeMs: Number(entry.mtimeMs) || 0,
+    }));
+  writeJsonAtomic(p, {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    entries: sortTelegramDirectoryEntries(cleanEntries),
+  });
+  return true;
 }
 
 function collectTelegramObjectCandidates(value, map, source, depth = 0) {
@@ -489,7 +577,7 @@ function collectOpenclawSessionCandidates(map) {
   }
 }
 
-function discoverTelegramConversationCandidates() {
+function discoverTelegramConversationCandidates({ includeDirectoryCache = true } = {}) {
   const map = new Map();
   collectOpenclawConfigCandidates(map);
   collectCustomCronCandidates(map);
@@ -497,105 +585,93 @@ function discoverTelegramConversationCandidates() {
   collectProviderCacheCandidates(map);
   collectOpenclawSessionCandidates(map);
   collectProfileCandidates(map);
+  if (includeDirectoryCache) collectDirectoryCacheCandidates(map);
   collectSettingsCandidates(map);
   return map;
 }
 
 function finalizeTelegramConversation(row) {
-  const policy = buildTelegramConversationPolicy(row);
-  return {
-    chatId: row.chatId,
+  return buildTelegramDirectoryEntry({
+    ...row,
     entityId: telegramEntityId(row.chatId),
-    entityType: 'telegram_chat',
-    label: row.label || `Telegram ${row.chatId}`,
-    chatType: policy.chatType,
-    role: policy.role,
-    audience: policy.audience,
-    scopeHints: policy.scopeHints,
-    responseMode: policy.responseMode,
-    toolScope: policy.toolScope,
-    enabled: policy.enabled,
-    policy,
-    profilePath: row.profilePath || '',
     hasProfile: !!(row.profilePath && fs.existsSync(row.profilePath)),
-    lastSeen: row.lastSeen || '',
-    msgCount: Number(row.msgCount) || 0,
-    summary: row.summary || '',
-    sources: row.sources || [],
-    mtimeMs: Number(row.mtimeMs) || 0,
-  };
+  });
 }
 
 function listTelegramConversations() {
   const map = discoverTelegramConversationCandidates();
-  const conversations = Array.from(map.values())
-    .map(finalizeTelegramConversation)
-    .sort((a, b) => {
-      const rr = compareTelegramRoles(a.role, b.role);
-      if (rr !== 0) return rr;
-      if ((b.mtimeMs || 0) !== (a.mtimeMs || 0)) return (b.mtimeMs || 0) - (a.mtimeMs || 0);
-      return (a.label || '').localeCompare(b.label || '');
-    });
+  const conversations = sortTelegramDirectoryEntries(
+    Array.from(map.values()).map(finalizeTelegramConversation).filter(Boolean)
+  );
   return {
     success: true,
     conversations,
-    counts: {
-      total: conversations.length,
-      ceo: conversations.filter(c => c.role === 'ceo').length,
-      internal: conversations.filter(c => c.role === 'internal').length,
-      customer: conversations.filter(c => c.role === 'customer').length,
-      unknown: conversations.filter(c => c.role === 'unknown').length,
-      enabled: conversations.filter(c => c.enabled !== false).length,
+    directory: {
+      version: 1,
+      source: 'telegram-memory-runtime',
+      counts: summarizeTelegramDirectory(conversations),
     },
+    counts: summarizeTelegramDirectory(conversations),
     profileDir: getTelegramProfilesDir() || '',
     settingsPath: getTelegramSettingsPath() || '',
   };
 }
 
-function scoreTelegramConversation(conversation, query) {
-  const raw = String(query || '').trim();
-  if (!raw) return 1;
-  const q = normalizeTelegramSearchText(raw);
-  const chatId = String(conversation.chatId || '');
-  const label = normalizeTelegramSearchText(conversation.label || '');
-  const summary = normalizeTelegramSearchText(conversation.summary || '');
-  const sources = normalizeTelegramSearchText((conversation.sources || []).join(' '));
-  if (chatId === raw || chatId === stripTelegramEntityPrefix(raw)) return 1000;
-  if (normalizeTelegramSearchText(chatId) === q) return 980;
-  if (label === q) return 920;
-  if (label.includes(q)) return 760;
-  const words = q.split(' ').filter(Boolean);
-  if (words.length && words.every(w => label.includes(w))) return 700;
-  if (summary.includes(q)) return 420;
-  if (sources.includes(q)) return 180;
-  return 0;
+function listTelegramDirectory(opts = {}) {
+  const listed = listTelegramConversations();
+  const conversations = filterTelegramDirectoryEntries(listed.conversations, {
+    query: opts.query || opts.name || '',
+    role: opts.role || '',
+    chatType: opts.chatType || opts.type || '',
+    kind: opts.kind || '',
+    enabled: opts.enabled,
+    limit: opts.limit || 200,
+  });
+  return {
+    success: true,
+    version: 1,
+    query: String(opts.query || opts.name || '').trim(),
+    count: conversations.length,
+    counts: summarizeTelegramDirectory(conversations),
+    conversations,
+    directory: {
+      version: 1,
+      source: 'telegram-memory-runtime',
+      totalCounts: listed.counts,
+    },
+  };
 }
 
-function findTelegramConversations({ query = '', role = '', chatType = '', enabled = null, autoMode = false, limit = 50 } = {}) {
+function refreshTelegramDirectoryFromRuntime() {
+  const map = discoverTelegramConversationCandidates({ includeDirectoryCache: false });
+  const conversations = sortTelegramDirectoryEntries(
+    Array.from(map.values()).map(finalizeTelegramConversation).filter(Boolean)
+  );
+  writeTelegramDirectoryCache({ entries: conversations });
+  const refreshed = listTelegramDirectory({ limit: 200 });
+  return {
+    success: true,
+    refreshed: conversations.length,
+    directoryPath: getTelegramDirectoryPath() || '',
+    updatedAt: new Date().toISOString(),
+    counts: summarizeTelegramDirectory(conversations),
+    conversations: refreshed.conversations,
+  };
+}
+
+function findTelegramConversations({ query = '', role = '', chatType = '', kind = '', enabled = null, autoMode = false, limit = 50 } = {}) {
   const all = listTelegramConversations().conversations;
-  const wantedRole = String(role || '').trim().toLowerCase();
-  const wantedType = String(chatType || '').trim().toLowerCase();
-  const enabledFilter = enabled == null || enabled === ''
-    ? null
-    : !['0', 'false', 'off', 'disabled'].includes(String(enabled).trim().toLowerCase());
   const q = String(query || '').trim();
-  const rows = all
-    .map(c => ({ ...c, score: scoreTelegramConversation(c, q) }))
-    .filter(c => !q || c.score > 0)
-    .filter(c => !wantedRole || c.role === wantedRole)
-    .filter(c => !wantedType || String(c.chatType || '').toLowerCase() === wantedType)
-    .filter(c => enabledFilter == null || (c.enabled !== false) === enabledFilter)
-    .sort((a, b) => {
-      if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
-      if ((b.mtimeMs || 0) !== (a.mtimeMs || 0)) return (b.mtimeMs || 0) - (a.mtimeMs || 0);
-      return (a.label || '').localeCompare(b.label || '');
-    })
-    .slice(0, Math.max(1, Math.min(200, Number(limit) || 50)));
+  const rows = filterTelegramDirectoryEntries(all, { query: q, role, chatType, kind, enabled, limit });
   const result = {
     success: true,
     query: q,
     count: rows.length,
     conversations: rows,
+    directory: {
+      version: 1,
+      source: 'telegram-directory',
+    },
   };
   if (autoMode && rows.length) {
     result.picked = rows[0].chatId;
@@ -644,6 +720,7 @@ function saveTelegramConversationSettings(input = {}) {
       responseMode: policy.responseMode,
       toolScope: policy.toolScope,
       enabled: policy.enabled,
+      aliases: item.aliases || item.alias || prev.aliases || [],
       updatedAt: new Date().toISOString(),
     };
   }
@@ -660,10 +737,13 @@ function seedTelegramConversationsFromRuntime() {
     const existed = !!(beforePath && fs.existsSync(beforePath));
     const profile = ensureTelegramConversationProfile({
       telegramChatId: conversation.chatId,
-      telegramChatType: conversation.chatType,
-      role: conversation.role,
-      label: conversation.label,
-    });
+        telegramChatType: conversation.chatType,
+        role: conversation.role,
+        responseMode: conversation.responseMode,
+        toolScope: conversation.toolScope,
+        aliases: conversation.aliases || [],
+        label: conversation.label,
+      });
     if (profile) {
       seeded.push({
         ...conversation,
@@ -736,6 +816,7 @@ role: ${conversation.role}
 audience: ${conversation.audience}
 responseMode: ${conversation.responseMode}
 toolScope: ${conversation.toolScope}
+directoryKind: ${conversation.directoryKind}
 label: ${quoteTelegramFrontMatter(title)}
 lastSeen: ${now}
 msgCount: 0
@@ -806,6 +887,8 @@ function formatTelegramMemoryPromptBlock(ctx) {
       role: ctx.conversation.role,
       audience: ctx.conversation.audience,
       label: ctx.conversation.label,
+      aliases: ctx.conversation.aliases || [],
+      directoryKind: ctx.conversation.directoryKind,
       scopes: ctx.conversation.scopeHints,
       responseMode: ctx.conversation.responseMode,
       toolScope: ctx.conversation.toolScope,
@@ -827,6 +910,7 @@ function formatTelegramMemoryPromptBlock(ctx) {
 
 module.exports = {
   SETTINGS_FILE,
+  DIRECTORY_FILE,
   PROFILE_DIR,
   sanitizeTelegramChatId,
   telegramEntityId,
@@ -841,11 +925,16 @@ module.exports = {
   roleScopeHints,
   roleAudience,
   getTelegramSettingsPath,
+  getTelegramDirectoryPath,
+  readTelegramDirectoryCache,
+  writeTelegramDirectoryCache,
   readTelegramConversationSettings,
   writeTelegramConversationSettings,
   parseTelegramProfileMeta,
   listTelegramProfiles,
   listTelegramConversations,
+  listTelegramDirectory,
+  refreshTelegramDirectoryFromRuntime,
   findTelegramConversations,
   saveTelegramConversationSettings,
   seedTelegramConversationsFromRuntime,

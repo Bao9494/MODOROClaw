@@ -184,6 +184,7 @@ function resolveTelegramTargetFromParams(params = {}, opts = {}) {
     query,
     role: params.role || '',
     chatType: params.chatType || params.type || '',
+    kind: params.kind || '',
     enabled: requireEnabled ? true : optionalBoolParam(params.enabled),
     autoMode: true,
     limit: Math.min(Math.max(parseInt(params.limit, 10) || 10, 1), 50),
@@ -236,6 +237,7 @@ function scopedTelegramCronParams(params = {}) {
       || (channel === 'telegram' ? (params.groupName || params.chatName || params.name || params.q || params.query || '') : ''),
     role: params.telegramRole || params.role || '',
     chatType: params.telegramChatType || params.chatType || params.type || '',
+    kind: params.telegramKind || params.kind || '',
     autoMode: params.autoMode || params.auto_mode,
     limit: params.limit,
   };
@@ -2977,10 +2979,30 @@ function startCronApi() {
           query: String(params.name || params.q || params.query || '').trim(),
           role: params.role || '',
           chatType: params.chatType || params.type || '',
+          kind: params.kind || '',
           enabled: optionalBoolParam(params.enabled),
           autoMode: boolParam(params.autoMode || params.auto_mode, false),
           limit: Math.min(Math.max(parseInt(params.limit, 10) || 50, 1), 200),
         });
+        return jsonResp(res, 200, result);
+      } catch (e) { return jsonResp(res, 500, { error: e.message }); }
+
+    } else if (urlPath === '/api/telegram/directory') {
+      try {
+        const result = telegramMemory.listTelegramDirectory({
+          query: String(params.name || params.q || params.query || '').trim(),
+          role: params.role || '',
+          chatType: params.chatType || params.type || '',
+          kind: params.kind || '',
+          enabled: optionalBoolParam(params.enabled),
+          limit: Math.min(Math.max(parseInt(params.limit, 10) || 200, 1), 200),
+        });
+        return jsonResp(res, 200, result);
+      } catch (e) { return jsonResp(res, 500, { error: e.message }); }
+
+    } else if (urlPath === '/api/telegram/directory/refresh') {
+      try {
+        const result = telegramMemory.refreshTelegramDirectoryFromRuntime();
         return jsonResp(res, 200, result);
       } catch (e) { return jsonResp(res, 500, { error: e.message }); }
 

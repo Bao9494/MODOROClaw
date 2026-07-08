@@ -176,17 +176,20 @@ Test:
 
 Mục tiêu: Telegram có cache/directory giống Zalo hơn.
 
-- Thêm `telegram-directory.js`.
-- Seed từ provider cache, sessions, logs, existing profiles, custom crons.
-- Chuẩn hóa private/group/supergroup/channel.
-- Lưu alias tên -> ID.
-- Chuẩn bị chỗ cho members/topic nếu provider cung cấp.
+- Thêm `telegram-directory.js`. (done)
+- Thêm cache file `telegram-directory.json`. (done)
+- Seed từ provider cache, sessions, logs, existing profiles, custom crons. (done ở mức runtime sources hiện có)
+- Chuẩn hóa private/group/supergroup/channel bằng `directoryKind`. (done)
+- Lưu alias tên -> ID. (done ở schema/settings/cache; UI nhập alias làm ở phase sau)
+- Thêm API `/api/telegram/directory` và `/api/telegram/directory/refresh`. (done)
+- Chuẩn bị chỗ cho members/topic nếu provider cung cấp. (pending)
 
 Test:
 
 - Lookup `LLK Agency (GMT +7) - LLK-999999` phải trả `-1003857797941`.
 - Lookup không được quét đệ quy `%APPDATA%\9bizclaw`.
 - Lookup dưới 1 giây trên cache hiện có.
+- Contract phải kiểm tra settings override directory cache.
 
 ### Phase 3 - Inbound context và session binding
 

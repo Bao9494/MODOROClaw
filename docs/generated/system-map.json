@@ -1,7 +1,7 @@
 {
   "generatedBy": "electron/scripts/generate-system-map.js",
   "counts": {
-    "apiRoutes": 87,
+    "apiRoutes": 89,
     "ipcHandlers": 233,
     "preloadBridges": 226,
     "dashboardPages": 21,
@@ -604,6 +604,24 @@
     },
     {
       "path": "/api/telegram/conversations",
+      "sources": [
+        "electron/lib/cron-api.js"
+      ],
+      "kinds": [
+        "local-api"
+      ]
+    },
+    {
+      "path": "/api/telegram/directory",
+      "sources": [
+        "electron/lib/cron-api.js"
+      ],
+      "kinds": [
+        "local-api"
+      ]
+    },
+    {
+      "path": "/api/telegram/directory/refresh",
       "sources": [
         "electron/lib/cron-api.js"
       ],
@@ -2976,7 +2994,7 @@
     },
     {
       "path": "electron/lib/cron-api.js",
-      "bytes": 182948
+      "bytes": 183930
     },
     {
       "path": "electron/lib/cron.js",
@@ -3067,6 +3085,10 @@
       "bytes": 33030
     },
     {
+      "path": "electron/lib/telegram-memory.js",
+      "bytes": 32284
+    },
+    {
       "path": "electron/lib/media-library.js",
       "bytes": 31821
     },
@@ -3077,10 +3099,6 @@
     {
       "path": "electron/lib/conversation.js",
       "bytes": 30749
-    },
-    {
-      "path": "electron/lib/telegram-memory.js",
-      "bytes": 30021
     },
     {
       "path": "electron/ui/brain.js",
