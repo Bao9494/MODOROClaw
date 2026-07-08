@@ -27,6 +27,7 @@ async function run() {
   const tg = require('../lib/telegram-memory');
   const policy = require('../lib/telegram-policy');
   const directory = require('../lib/telegram-directory');
+  const inbound = require('../lib/telegram-inbound-context');
   try {
     mem.cleanupCeoMemoryTimers?.();
     const cronSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'cron.js'), 'utf-8');
@@ -84,6 +85,27 @@ async function run() {
       && directoryEntry.aliases.includes('LLK')
       && directory.scoreTelegramDirectoryEntry(directoryEntry, 'LLK-999999') > 0,
       JSON.stringify(directoryEntry));
+    const inboundCtx = inbound.buildTelegramInboundContext({
+      conversation: directoryEntry,
+      source: {
+        senderId: '8406640669',
+        senderRole: 'ceo',
+        messageId: '123',
+        replyToMessageId: '122',
+        topicId: '7',
+        text: 'kiem tra LLK',
+      },
+    });
+    assert('telegram inbound context carries conversation sender thread and policy',
+      inboundCtx.trusted === true
+      && inboundCtx.conversation.targetChatId === '-1003857797941'
+      && inboundCtx.conversation.directoryKind === 'group'
+      && inboundCtx.sender.id === '8406640669'
+      && inboundCtx.sender.role === 'ceo'
+      && inboundCtx.thread.id === '7'
+      && inboundCtx.message.replyTo === '122'
+      && inbound.formatTelegramInboundContextBlock(inboundCtx).includes('<telegram-inbound-context trusted="true">'),
+      JSON.stringify(inboundCtx));
     assert('telegram entity id is stable', tg.telegramEntityId('-1003857797941') === 'telegram:-1003857797941');
     assert('telegram memory discovers OpenClaw session metadata',
       telegramMemorySrc.includes('collectOpenclawSessionCandidates')
@@ -93,6 +115,7 @@ async function run() {
       'missing session metadata collector');
     assert('telegram memory uses directory cache and helper layer',
       telegramMemorySrc.includes("require('./telegram-directory')")
+      && telegramMemorySrc.includes("require('./telegram-inbound-context')")
       && telegramMemorySrc.includes('collectDirectoryCacheCandidates')
       && telegramMemorySrc.includes('refreshTelegramDirectoryFromRuntime')
       && telegramMemorySrc.includes('directory-cache'),

@@ -6,6 +6,27 @@
 
 ## 2026-07-08
 
+### Telegram inbound context foundation
+
+**File(s):** `electron/lib/telegram-inbound-context.js`, `electron/lib/telegram-memory.js`, `electron/scripts/check-telegram-memory-contract.js`, `docs/plans/2026-07-08-telegram-zalo-full-parity-architecture.md`
+
+**Root cause:** Telegram memory context mới có conversation/profile/memory, nhưng chưa có block inbound chuẩn tương đương Zalo để gói conversation, sender, thread/topic, message refs và policy trước khi agent xử lý.
+
+**Fix/Change:**
+- Thêm `telegram-inbound-context.js` để build context chuẩn cho conversation, sender, thread/topic, message và policy.
+- Cho `resolveTelegramConversation()` trả directory fields đầy đủ như `targetChatId`, `directoryKind`, `aliases`.
+- Cho `buildTelegramMemoryContext()` tạo thêm `inboundContext`.
+- Cho `formatTelegramMemoryPromptBlock()` nhúng `inboundContext` và `inboundContextBlock`, vẫn giữ tag cũ `telegram-conversation-context` để tương thích.
+- Mở rộng contract test để khóa sender/thread/message/policy context.
+
+**Tradeoff/Decision:** Chưa hook sâu vào Telegram provider/poller. Đây là helper chuẩn để cron/runtime/UI phase sau dùng chung.
+
+**Verification:** `node --check` cho `telegram-inbound-context.js`, `telegram-memory.js`, `check-telegram-memory-contract.js` PASS; `check-telegram-memory-contract.js` PASS static guards. Runtime DB filtering vẫn skip ở source clone do `better-sqlite3` ABI khác Node hiện tại.
+
+**State:** Phase 3 inbound context foundation done in source branch; chưa build/cài runtime.
+
+---
+
 ### Telegram directory/rich-cache foundation
 
 **File(s):** `electron/lib/telegram-directory.js`, `electron/lib/telegram-memory.js`, `electron/lib/cron-api.js`, `electron/scripts/check-telegram-memory-contract.js`, `docs/telegram-zalo-architecture-parity.md`, `docs/plans/2026-07-08-telegram-zalo-full-parity-architecture.md`

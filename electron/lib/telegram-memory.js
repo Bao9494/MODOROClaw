@@ -22,6 +22,10 @@ const {
   filterTelegramDirectoryEntries,
   summarizeTelegramDirectory,
 } = require('./telegram-directory');
+const {
+  buildTelegramInboundContext,
+  formatTelegramInboundContextBlock,
+} = require('./telegram-inbound-context');
 
 const SETTINGS_FILE = 'telegram-conversation-settings.json';
 const DIRECTORY_FILE = 'telegram-directory.json';
@@ -773,28 +777,24 @@ function resolveTelegramConversation(source = {}, headers = {}) {
   const settings = readTelegramConversationSettings();
   const perChat = getTelegramSetting(settings, chatId);
   const chatType = normalizeTelegramChatType(source.chatType || source.telegramChatType || source.originChatType || target?.originChatType || perChat.chatType || '');
-  const policy = buildTelegramConversationPolicy({
+  const directoryEntry = buildTelegramDirectoryEntry({
     ...perChat,
     ...source,
+    chatId,
     chatType,
     role: source.role || source.telegramRole || perChat.role,
     responseMode: source.responseMode || source.mode || perChat.responseMode,
     enabled: source.enabled != null ? source.enabled : perChat.enabled,
+    label: source.label || source.title || source.username || perChat.label || perChat.title || '',
   });
   const label = String(source.label || source.title || source.username || perChat.label || perChat.title || '').trim();
   return {
+    ...(directoryEntry || {}),
     channel: 'telegram',
     chatId,
     entityId: telegramEntityId(chatId),
     entityType: 'telegram_chat',
-    chatType,
-    role: policy.role,
-    audience: policy.audience,
-    scopeHints: policy.scopeHints,
-    responseMode: policy.responseMode,
-    toolScope: policy.toolScope,
-    policy,
-    label,
+    label: label || directoryEntry?.label || `Telegram ${chatId}`,
     telegramTarget: target,
   };
 }
@@ -873,6 +873,12 @@ async function buildTelegramMemoryContext(source = {}) {
     conversation,
     profile,
     memory,
+    inboundContext: buildTelegramInboundContext({
+      conversation,
+      source,
+      profile,
+      memory,
+    }),
   };
 }
 
@@ -895,6 +901,8 @@ function formatTelegramMemoryPromptBlock(ctx) {
       policy: ctx.conversation.policy || null,
     },
     profile: ctx.profile ? ctx.profile.content : '',
+    inboundContext: ctx.inboundContext || null,
+    inboundContextBlock: ctx.inboundContext ? formatTelegramInboundContextBlock(ctx.inboundContext) : '',
     memories: (ctx.memory?.memories || []).map(m => ({
       id: m.id,
       type: m.type,
@@ -922,6 +930,8 @@ module.exports = {
   normalizeTelegramResponseMode,
   normalizeTelegramEnabled,
   buildTelegramConversationPolicy,
+  buildTelegramInboundContext,
+  formatTelegramInboundContextBlock,
   roleScopeHints,
   roleAudience,
   getTelegramSettingsPath,
