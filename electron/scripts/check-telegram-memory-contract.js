@@ -165,6 +165,17 @@ async function run() {
       && fs.existsSync(capturedUserProfile)
       && tg.listTelegramDirectory({ query: 'LLK-999999', kind: 'group', enabled: true }).count >= 1,
       JSON.stringify(capturedRuntime));
+    runtimeCapture.ensureTelegramTierProfile({
+      chatId: '-1007777777777',
+      chatType: 'supergroup',
+      label: 'Tier Only Telegram Group',
+      role: 'internal',
+    });
+    const tierOnlyLookup = tg.listTelegramDirectory({ query: 'Tier Only Telegram Group', kind: 'group', limit: 5 });
+    assert('telegram memory scans tier user/group profile dirs',
+      tierOnlyLookup.count >= 1
+      && tierOnlyLookup.conversations.some(c => c.chatId === '-1007777777777' && c.directoryKind === 'group'),
+      JSON.stringify(tierOnlyLookup));
     assert('telegram entity id is stable', tg.telegramEntityId('-1003857797941') === 'telegram:-1003857797941');
     assert('telegram memory discovers OpenClaw session metadata',
       telegramMemorySrc.includes('collectOpenclawSessionCandidates')
@@ -177,6 +188,8 @@ async function run() {
       && telegramMemorySrc.includes("require('./telegram-inbound-context')")
       && telegramMemorySrc.includes('collectDirectoryCacheCandidates')
       && telegramMemorySrc.includes('refreshTelegramDirectoryFromRuntime')
+      && telegramMemorySrc.includes('profile-tier-group')
+      && telegramMemorySrc.includes('profile-tier-user')
       && telegramMemorySrc.includes('directory-cache'),
       'missing telegram directory layer wiring');
     assert('ceo-memory allows explicit telegram customer scope only via hints', memorySrc.includes("ch === 'telegram' && hints.includes('customer')"), 'missing explicit customer hint gate');
@@ -289,6 +302,8 @@ async function run() {
       'telegram-ceo skill missing Telegram send workflow');
     assert('MEMORY index includes Telegram chat profiles',
       memoryIndexSrc.includes('memory/telegram-chats/<chatId>.md')
+      && memoryIndexSrc.includes('memory/telegram-users/<userId>.md')
+      && memoryIndexSrc.includes('memory/telegram-groups/<chatId>.md')
       && memoryIndexSrc.includes('Telegram role là `customer`'),
       'MEMORY.md missing Telegram profile routing');
 

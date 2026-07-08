@@ -30,6 +30,8 @@ const {
 const SETTINGS_FILE = 'telegram-conversation-settings.json';
 const DIRECTORY_FILE = 'telegram-directory.json';
 const PROFILE_DIR = path.join('memory', 'telegram-chats');
+const USER_PROFILE_DIR = path.join('memory', 'telegram-users');
+const GROUP_PROFILE_DIR = path.join('memory', 'telegram-groups');
 
 function sanitizeTelegramChatId(value) {
   if (value == null) return '';
@@ -42,16 +44,16 @@ function telegramEntityId(chatId) {
   return id ? `telegram:${id}` : '';
 }
 
-function getTelegramProfilesDir() {
+function getTelegramProfilesDir(profileDir = PROFILE_DIR) {
   const agentWs = getOpenclawAgentWorkspace();
-  if (agentWs) return path.join(agentWs, PROFILE_DIR);
+  if (agentWs) return path.join(agentWs, profileDir);
   const ws = getWorkspace();
   if (!ws) return null;
-  return path.join(ws, PROFILE_DIR);
+  return path.join(ws, profileDir);
 }
 
-function ensureTelegramProfilesDir() {
-  const dir = getTelegramProfilesDir();
+function ensureTelegramProfilesDir(profileDir = PROFILE_DIR) {
+  const dir = getTelegramProfilesDir(profileDir);
   if (!dir) return null;
   try { fs.mkdirSync(dir, { recursive: true }); } catch {}
   return dir;
@@ -235,8 +237,8 @@ function collectSettingsCandidates(map, settings = readTelegramConversationSetti
   }
 }
 
-function listTelegramProfiles() {
-  const dir = getTelegramProfilesDir();
+function listTelegramProfilesInDir(profileDir = PROFILE_DIR, { source = 'profile', defaultChatType = '' } = {}) {
+  const dir = getTelegramProfilesDir(profileDir);
   const out = [];
   if (!dir || !fs.existsSync(dir)) return out;
   try {
@@ -248,11 +250,12 @@ function listTelegramProfiles() {
         const stat = fs.statSync(filePath);
         const content = fs.readFileSync(filePath, 'utf-8');
         const meta = parseTelegramProfileMeta(content);
+        const profileChatId = sanitizeTelegramChatId(meta.chatId || meta.senderId || chatId) || chatId;
         out.push({
-          chatId,
-          entityId: telegramEntityId(chatId),
+          chatId: profileChatId,
+          entityId: telegramEntityId(profileChatId),
           label: meta.label || meta.title || '',
-          chatType: meta.chatType || '',
+          chatType: meta.chatType || defaultChatType,
           role: meta.role || '',
           audience: meta.audience || '',
           lastSeen: meta.lastSeen || stat.mtime.toISOString(),
@@ -260,13 +263,21 @@ function listTelegramProfiles() {
           summary: meta.summary || '',
           profilePath: filePath,
           mtimeMs: stat.mtimeMs,
-          source: 'profile',
+          source,
         });
       } catch {}
     }
   } catch {}
   out.sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0));
   return out;
+}
+
+function listTelegramProfiles() {
+  return [
+    ...listTelegramProfilesInDir(PROFILE_DIR, { source: 'profile', defaultChatType: '' }),
+    ...listTelegramProfilesInDir(GROUP_PROFILE_DIR, { source: 'profile-tier-group', defaultChatType: 'supergroup' }),
+    ...listTelegramProfilesInDir(USER_PROFILE_DIR, { source: 'profile-tier-user', defaultChatType: 'private' }),
+  ].sort((a, b) => (b.mtimeMs || 0) - (a.mtimeMs || 0));
 }
 
 function collectProfileCandidates(map) {
@@ -920,6 +931,8 @@ module.exports = {
   SETTINGS_FILE,
   DIRECTORY_FILE,
   PROFILE_DIR,
+  USER_PROFILE_DIR,
+  GROUP_PROFILE_DIR,
   sanitizeTelegramChatId,
   telegramEntityId,
   getTelegramProfilesDir,

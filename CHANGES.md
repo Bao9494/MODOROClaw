@@ -6,6 +6,23 @@
 
 ## 2026-07-08
 
+### Telegram tier profile scanner
+
+**File(s):** `electron/lib/telegram-memory.js`, `electron/scripts/check-telegram-memory-contract.js`
+
+**Root cause:** Phase runtime capture đã tạo `memory/telegram-users` và `memory/telegram-groups`, nhưng directory scanner vẫn chủ yếu đọc `memory/telegram-chats`. Nếu directory cache mất hoặc chưa refresh, profile tầng user/group chưa trở thành nguồn lookup độc lập như Zalo.
+
+**Fix/Change:**
+- Cho `telegram-memory.js` scan thêm `memory/telegram-users` và `memory/telegram-groups` bên cạnh `memory/telegram-chats`.
+- Gắn source `profile-tier-user`/`profile-tier-group` để biết dữ liệu đến từ profile tầng mới.
+- Thêm contract test tạo group chỉ tồn tại trong `memory/telegram-groups` và yêu cầu lookup directory tìm được.
+
+**Verification:** `check-telegram-memory-contract.js` PASS; `node --check electron/lib/telegram-memory.js` PASS.
+
+**State:** Phase 5b source foundation done; chưa build/cài runtime.
+
+---
+
 ### Telegram runtime capture and tier memory foundation
 
 **File(s):** `electron/lib/telegram-runtime-capture.js`, `electron/lib/channels.js`, `electron/lib/workspace.js`, `electron/scripts/check-telegram-memory-contract.js`, `MEMORY.md`, `docs/plans/2026-07-08-telegram-zalo-full-parity-architecture.md`, `docs/telegram-zalo-architecture-parity.md`

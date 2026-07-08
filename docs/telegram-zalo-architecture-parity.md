@@ -60,7 +60,7 @@ Kết luận: hiệu quả chính đến từ việc filter trước khi scoring
 | Message refs | `electron/lib/telegram-message-refs.js` nhớ latest message theo chat/thread để reply/edit/delete/pin sau này | Đã thêm nền tảng |
 | Runtime capture | `electron/lib/telegram-runtime-capture.js` cập nhật directory, session binding, message refs và profile tầng từ event Telegram thật | Đã thêm foundation |
 | Outbound capture | `sendTelegram`/`sendTelegramPhoto` lưu message ref thật sau khi Telegram API trả `message_id` | Đã thêm foundation |
-| Memory tầng Telegram | `memory/telegram-users/<userId>.md`, `memory/telegram-groups/<chatId>.md`, giữ `memory/telegram-chats/<chatId>.md` để tương thích | Đã thêm foundation |
+| Memory tầng Telegram | `memory/telegram-users/<userId>.md`, `memory/telegram-groups/<chatId>.md`, giữ `memory/telegram-chats/<chatId>.md` để tương thích; directory scanner đọc cả 3 tầng | Đã thêm foundation |
 | UI quản lý conversation | Tab Telegram có bảng 2 cột Group/Channel và Private/CEO/DM, bộ lọc riêng từng cột, nút xem hồ sơ, role select, responseMode select và bật/tắt/bulk action theo conversation | Đã thêm foundation |
 | Seed danh sách conversation | `telegram-memory.js` đọc `openclaw.json`, `custom-crons.json`, log/cache Telegram và profile đã có để seed `memory/telegram-chats/<chatId>.md` | Đã thêm nền tảng |
 | Directory/cache Telegram | `electron/lib/telegram-directory.js`, `telegram-directory.json`, `/api/telegram/directory`, `/api/telegram/directory/refresh` | Đã thêm nền tảng |

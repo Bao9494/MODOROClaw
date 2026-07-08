@@ -3081,12 +3081,12 @@
       "bytes": 36210
     },
     {
-      "path": "electron/lib/fb-native-schedule-batch.js",
-      "bytes": 33030
+      "path": "electron/lib/telegram-memory.js",
+      "bytes": 33634
     },
     {
-      "path": "electron/lib/telegram-memory.js",
-      "bytes": 32762
+      "path": "electron/lib/fb-native-schedule-batch.js",
+      "bytes": 33030
     },
     {
       "path": "electron/lib/media-library.js",
