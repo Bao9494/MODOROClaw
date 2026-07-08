@@ -3080,7 +3080,7 @@
     },
     {
       "path": "electron/lib/telegram-memory.js",
-      "bytes": 29212
+      "bytes": 30021
     },
     {
       "path": "electron/ui/brain.js",

@@ -7,6 +7,16 @@ const { writeJsonAtomic } = require('./util');
 const { readOpenclawJsonFile } = require('./openclaw-json');
 const { getWorkspace, getOpenclawAgentWorkspace } = require('./workspace');
 const { buildTelegramTargetFromContext, resolveTelegramChatIdFromTarget } = require('./telegram-routing');
+const {
+  normalizeTelegramRole,
+  roleScopeHints,
+  roleAudience,
+  normalizeTelegramChatType,
+  normalizeTelegramResponseMode,
+  normalizeTelegramEnabled,
+  buildTelegramConversationPolicy,
+  compareTelegramRoles,
+} = require('./telegram-policy');
 
 const SETTINGS_FILE = 'telegram-conversation-settings.json';
 const PROFILE_DIR = path.join('memory', 'telegram-chats');
@@ -42,29 +52,6 @@ function getTelegramProfilePath(chatId) {
   const dir = ensureTelegramProfilesDir();
   if (!id || !dir) return null;
   return path.join(dir, `${id}.md`);
-}
-
-function normalizeTelegramRole(role, chatType = '') {
-  const raw = String(role || '').trim().toLowerCase();
-  if (['ceo', 'owner', 'admin'].includes(raw)) return 'ceo';
-  if (['internal', 'staff', 'team', 'employee'].includes(raw)) return 'internal';
-  if (['customer', 'client', 'external', 'group'].includes(raw)) return 'customer';
-  const type = String(chatType || '').trim().toLowerCase();
-  return ['group', 'supergroup', 'channel'].includes(type) ? 'customer' : 'ceo';
-}
-
-function roleScopeHints(role) {
-  const r = normalizeTelegramRole(role);
-  if (r === 'ceo') return ['ceo', 'internal', 'workflow', 'public'];
-  if (r === 'internal') return ['internal', 'workflow', 'public'];
-  return ['customer', 'public'];
-}
-
-function roleAudience(role) {
-  const r = normalizeTelegramRole(role);
-  if (r === 'ceo') return 'ceo';
-  if (r === 'internal') return 'internal';
-  return 'customer';
 }
 
 function compactTelegramText(value, max = 160) {
@@ -120,16 +107,24 @@ function writeTelegramConversationSettings(settings, workspace = getWorkspace())
     const value = rawValue && typeof rawValue === 'object' ? rawValue : {};
     const id = sanitizeTelegramChatId(value.chatId || stripTelegramEntityPrefix(rawKey));
     if (!id) continue;
-    const chatType = compactTelegramText(value.chatType || '', 40);
-    const role = normalizeTelegramRole(value.role, chatType);
+    const chatType = normalizeTelegramChatType(value.chatType || '');
+    const policy = buildTelegramConversationPolicy({
+      ...value,
+      chatType,
+      role: value.role,
+      enabled: value.enabled,
+    });
     clean[telegramEntityId(id)] = {
       chatId: id,
       entityId: telegramEntityId(id),
       label: compactTelegramText(value.label || value.title || '', 120),
       chatType,
-      role,
-      audience: roleAudience(role),
-      enabled: value.enabled !== false,
+      role: policy.role,
+      audience: policy.audience,
+      scopeHints: policy.scopeHints,
+      responseMode: policy.responseMode,
+      toolScope: policy.toolScope,
+      enabled: policy.enabled,
       updatedAt: value.updatedAt || new Date().toISOString(),
     };
   }
@@ -175,9 +170,15 @@ function addTelegramConversationCandidate(map, candidate = {}) {
   const prev = map.get(chatId) || {};
   const prevSources = Array.isArray(prev.sources) ? prev.sources : (prev.source ? [prev.source] : []);
   const source = compactTelegramText(candidate.source || 'runtime', 60);
-  const chatType = compactTelegramText(candidate.chatType || candidate.telegramChatType || prev.chatType || '', 40);
+  const chatType = normalizeTelegramChatType(candidate.chatType || candidate.telegramChatType || prev.chatType || '');
   const roleInput = candidate.role || prev.role;
-  const role = normalizeTelegramRole(roleInput, chatType);
+  const policy = buildTelegramConversationPolicy({
+    role: roleInput,
+    chatType,
+    responseMode: candidate.responseMode || candidate.mode || prev.responseMode,
+    enabled: candidate.enabled != null ? candidate.enabled : prev.enabled,
+    toolScope: candidate.toolScope || prev.toolScope,
+  });
   const label = compactTelegramText(candidate.label || candidate.title || candidate.username || prev.label || '', 120);
   const summary = compactTelegramText(candidate.summary || prev.summary || '', 220);
   const next = {
@@ -187,10 +188,13 @@ function addTelegramConversationCandidate(map, candidate = {}) {
     entityType: 'telegram_chat',
     label,
     chatType,
-    role,
-    audience: roleAudience(role),
-    scopeHints: roleScopeHints(role),
-    enabled: candidate.enabled != null ? candidate.enabled !== false : (prev.enabled !== false),
+    role: policy.role,
+    audience: policy.audience,
+    scopeHints: policy.scopeHints,
+    responseMode: policy.responseMode,
+    toolScope: policy.toolScope,
+    enabled: policy.enabled,
+    policy,
     profilePath: candidate.profilePath || prev.profilePath || '',
     lastSeen: candidate.lastSeen || prev.lastSeen || '',
     msgCount: Number.isFinite(Number(candidate.msgCount)) ? Number(candidate.msgCount) : (Number(prev.msgCount) || 0),
@@ -498,17 +502,20 @@ function discoverTelegramConversationCandidates() {
 }
 
 function finalizeTelegramConversation(row) {
-  const role = normalizeTelegramRole(row.role, row.chatType);
+  const policy = buildTelegramConversationPolicy(row);
   return {
     chatId: row.chatId,
     entityId: telegramEntityId(row.chatId),
     entityType: 'telegram_chat',
     label: row.label || `Telegram ${row.chatId}`,
-    chatType: row.chatType || 'unknown',
-    role,
-    audience: roleAudience(role),
-    scopeHints: roleScopeHints(role),
-    enabled: row.enabled !== false,
+    chatType: policy.chatType,
+    role: policy.role,
+    audience: policy.audience,
+    scopeHints: policy.scopeHints,
+    responseMode: policy.responseMode,
+    toolScope: policy.toolScope,
+    enabled: policy.enabled,
+    policy,
     profilePath: row.profilePath || '',
     hasProfile: !!(row.profilePath && fs.existsSync(row.profilePath)),
     lastSeen: row.lastSeen || '',
@@ -524,9 +531,8 @@ function listTelegramConversations() {
   const conversations = Array.from(map.values())
     .map(finalizeTelegramConversation)
     .sort((a, b) => {
-      const ar = a.role === 'ceo' ? 0 : a.role === 'internal' ? 1 : 2;
-      const br = b.role === 'ceo' ? 0 : b.role === 'internal' ? 1 : 2;
-      if (ar !== br) return ar - br;
+      const rr = compareTelegramRoles(a.role, b.role);
+      if (rr !== 0) return rr;
       if ((b.mtimeMs || 0) !== (a.mtimeMs || 0)) return (b.mtimeMs || 0) - (a.mtimeMs || 0);
       return (a.label || '').localeCompare(b.label || '');
     });
@@ -538,6 +544,7 @@ function listTelegramConversations() {
       ceo: conversations.filter(c => c.role === 'ceo').length,
       internal: conversations.filter(c => c.role === 'internal').length,
       customer: conversations.filter(c => c.role === 'customer').length,
+      unknown: conversations.filter(c => c.role === 'unknown').length,
       enabled: conversations.filter(c => c.enabled !== false).length,
     },
     profileDir: getTelegramProfilesDir() || '',
@@ -617,16 +624,26 @@ function saveTelegramConversationSettings(input = {}) {
     const chatId = sanitizeTelegramChatId(item.chatId);
     if (!chatId) continue;
     const prev = getTelegramSetting(next, chatId);
-    const chatType = compactTelegramText(item.chatType || prev.chatType || '', 40);
-    const role = normalizeTelegramRole(item.role || prev.role, chatType);
+    const chatType = normalizeTelegramChatType(item.chatType || prev.chatType || '');
+    const policy = buildTelegramConversationPolicy({
+      ...prev,
+      ...item,
+      chatType,
+      role: item.role || prev.role,
+      responseMode: item.responseMode || item.mode || prev.responseMode,
+      enabled: item.enabled != null ? item.enabled : prev.enabled,
+    });
     next[telegramEntityId(chatId)] = {
       chatId,
       entityId: telegramEntityId(chatId),
       label: compactTelegramText(item.label || prev.label || '', 120),
       chatType,
-      role,
-      audience: roleAudience(role),
-      enabled: item.enabled != null ? item.enabled !== false : (prev.enabled !== false),
+      role: policy.role,
+      audience: policy.audience,
+      scopeHints: policy.scopeHints,
+      responseMode: policy.responseMode,
+      toolScope: policy.toolScope,
+      enabled: policy.enabled,
       updatedAt: new Date().toISOString(),
     };
   }
@@ -675,8 +692,15 @@ function resolveTelegramConversation(source = {}, headers = {}) {
   if (!chatId) return null;
   const settings = readTelegramConversationSettings();
   const perChat = getTelegramSetting(settings, chatId);
-  const chatType = String(source.chatType || source.telegramChatType || source.originChatType || target?.originChatType || perChat.chatType || '').trim();
-  const role = normalizeTelegramRole(source.role || source.telegramRole || perChat.role, chatType);
+  const chatType = normalizeTelegramChatType(source.chatType || source.telegramChatType || source.originChatType || target?.originChatType || perChat.chatType || '');
+  const policy = buildTelegramConversationPolicy({
+    ...perChat,
+    ...source,
+    chatType,
+    role: source.role || source.telegramRole || perChat.role,
+    responseMode: source.responseMode || source.mode || perChat.responseMode,
+    enabled: source.enabled != null ? source.enabled : perChat.enabled,
+  });
   const label = String(source.label || source.title || source.username || perChat.label || perChat.title || '').trim();
   return {
     channel: 'telegram',
@@ -684,9 +708,12 @@ function resolveTelegramConversation(source = {}, headers = {}) {
     entityId: telegramEntityId(chatId),
     entityType: 'telegram_chat',
     chatType,
-    role,
-    audience: roleAudience(role),
-    scopeHints: roleScopeHints(role),
+    role: policy.role,
+    audience: policy.audience,
+    scopeHints: policy.scopeHints,
+    responseMode: policy.responseMode,
+    toolScope: policy.toolScope,
+    policy,
     label,
     telegramTarget: target,
   };
@@ -707,6 +734,8 @@ entityId: ${conversation.entityId}
 chatType: ${conversation.chatType || 'unknown'}
 role: ${conversation.role}
 audience: ${conversation.audience}
+responseMode: ${conversation.responseMode}
+toolScope: ${conversation.toolScope}
 label: ${quoteTelegramFrontMatter(title)}
 lastSeen: ${now}
 msgCount: 0
@@ -778,6 +807,9 @@ function formatTelegramMemoryPromptBlock(ctx) {
       audience: ctx.conversation.audience,
       label: ctx.conversation.label,
       scopes: ctx.conversation.scopeHints,
+      responseMode: ctx.conversation.responseMode,
+      toolScope: ctx.conversation.toolScope,
+      policy: ctx.conversation.policy || null,
     },
     profile: ctx.profile ? ctx.profile.content : '',
     memories: (ctx.memory?.memories || []).map(m => ({
@@ -802,6 +834,10 @@ module.exports = {
   ensureTelegramProfilesDir,
   getTelegramProfilePath,
   normalizeTelegramRole,
+  normalizeTelegramChatType,
+  normalizeTelegramResponseMode,
+  normalizeTelegramEnabled,
+  buildTelegramConversationPolicy,
   roleScopeHints,
   roleAudience,
   getTelegramSettingsPath,

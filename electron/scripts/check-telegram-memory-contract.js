@@ -25,6 +25,7 @@ async function run() {
 
   const mem = require('../lib/ceo-memory');
   const tg = require('../lib/telegram-memory');
+  const policy = require('../lib/telegram-policy');
   try {
     mem.cleanupCeoMemoryTimers?.();
     const cronSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'cron.js'), 'utf-8');
@@ -48,6 +49,26 @@ async function run() {
     });
     assert('telegram group defaults to customer role', group && group.role === 'customer' && group.audience === 'customer', JSON.stringify(group));
     assert('telegram group scopes are customer/public', JSON.stringify(group.scopeHints) === JSON.stringify(['customer', 'public']), JSON.stringify(group?.scopeHints));
+    assert('telegram policy module keeps group/customer defaults',
+      policy.normalizeTelegramRole('', 'supergroup') === 'customer'
+      && policy.roleAudience('customer') === 'customer'
+      && JSON.stringify(policy.roleScopeHints('customer')) === JSON.stringify(['customer', 'public']),
+      'group/customer policy defaults drifted');
+    const internalGroupPolicy = policy.buildTelegramConversationPolicy({ chatType: 'supergroup', role: 'internal' });
+    assert('telegram policy supports response mode and tool scope',
+      internalGroupPolicy.role === 'internal'
+      && internalGroupPolicy.responseMode === 'mention'
+      && internalGroupPolicy.toolScope === 'internal'
+      && internalGroupPolicy.canUseInternalKnowledge === true
+      && internalGroupPolicy.canUseAdminTools === false,
+      JSON.stringify(internalGroupPolicy));
+    const unknownPolicy = policy.buildTelegramConversationPolicy({ chatType: 'private', role: 'unknown' });
+    assert('telegram unknown policy is public only and cannot reply by default',
+      unknownPolicy.role === 'unknown'
+      && JSON.stringify(unknownPolicy.scopeHints) === JSON.stringify(['public'])
+      && unknownPolicy.toolScope === 'public_only'
+      && unknownPolicy.canReply === false,
+      JSON.stringify(unknownPolicy));
     assert('telegram entity id is stable', tg.telegramEntityId('-1003857797941') === 'telegram:-1003857797941');
     assert('telegram memory discovers OpenClaw session metadata',
       telegramMemorySrc.includes('collectOpenclawSessionCandidates')
@@ -68,12 +89,19 @@ async function run() {
         chatId: '-1003857797941',
         chatType: 'supergroup',
         role: 'internal',
+        responseMode: 'all',
         label: 'Nhom noi bo Telegram',
         enabled: true,
       }],
     });
     const savedRow = (saved.conversations || []).find(c => c.chatId === '-1003857797941');
-    assert('telegram conversation settings persist role override', savedRow && savedRow.role === 'internal' && savedRow.audience === 'internal', JSON.stringify(savedRow));
+    assert('telegram conversation settings persist role/policy override',
+      savedRow
+      && savedRow.role === 'internal'
+      && savedRow.audience === 'internal'
+      && savedRow.responseMode === 'all'
+      && savedRow.toolScope === 'internal',
+      JSON.stringify(savedRow));
     const lookup = tg.findTelegramConversations({ query: 'Nhom noi bo Telegram', autoMode: true, enabled: true });
     assert('telegram conversation lookup resolves target by name', lookup.picked === '-1003857797941' && lookup.pickedConversation?.role === 'internal', JSON.stringify(lookup));
 

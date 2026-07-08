@@ -78,6 +78,12 @@ Kết luận: hiệu quả chính đến từ việc filter trước khi scoring
 | Dedupe outbound toàn kênh | Có thể ảnh hưởng alert CEO và retry Telegram; chỉ nên thêm sau khi có test E2E rõ |
 | Provider Telegram riêng giàu metadata như openzca | UI hiện seed được từ cấu hình, cron, log/cache và profile; provider Telegram vẫn chưa có cache danh bạ/group đầy đủ như Zalo |
 
+## Trạng thái full parity
+
+Bản 2026-07-08 mới đạt nền tảng parity ở routing, API lookup/send, profile conversation và một phần UI quản lý. Telegram chưa đạt full parity với Zalo vì còn thiếu channel spine riêng, policy engine, inbound context thống nhất, session binding theo conversation, directory/cache giàu và UI 2 cột như Zalo.
+
+Plan triển khai triệt để nằm ở `docs/plans/2026-07-08-telegram-zalo-full-parity-architecture.md`.
+
 ## Kết luận kỹ thuật
 
 Telegram đã được mô phỏng theo Zalo ở ba lớp:

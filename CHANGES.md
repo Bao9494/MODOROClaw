@@ -6,6 +6,28 @@
 
 ## 2026-07-08
 
+### Telegram full Zalo-parity architecture plan + policy foundation
+
+**File(s):** `electron/lib/telegram-policy.js`, `electron/lib/telegram-memory.js`, `electron/scripts/check-telegram-memory-contract.js`, `docs/telegram-zalo-architecture-parity.md`, `docs/plans/2026-07-08-telegram-zalo-full-parity-architecture.md`
+
+**Root cause:** Telegram đã được harden ở tầng routing/API/memory nền, nhưng vẫn chưa giống Zalo triệt để vì thiếu lớp policy riêng. `telegram-memory.js` đang tự suy role/audience/scope, khiến UI, inbound, cron và memory dễ phát triển lệch nhau.
+
+**Fix/Change:**
+- Tạo plan full parity để kế thừa kiến trúc Zalo theo từng tầng: channel spine, directory/cache, policy, inbound context, session binding, history archive, memory tier và UI 2 cột.
+- Ghi rõ trong tài liệu đối chiếu rằng Telegram hiện mới đạt nền tảng parity, chưa đạt full parity.
+- Thêm `telegram-policy.js` để chuẩn hóa `role`, `audience`, `scopeHints`, `responseMode`, `toolScope` và quyền hành vi.
+- Cho `telegram-memory.js` dùng policy chung khi đọc/ghi settings, finalize conversation và resolve conversation.
+- Giữ export cũ từ `telegram-memory.js` để không làm vỡ caller hiện có.
+- Mở rộng `check-telegram-memory-contract.js` để khóa policy mặc định của group/customer, internal group và unknown chat.
+
+**Tradeoff/Decision:** Chưa đổi UI hoặc viết provider Telegram riêng trong bước này. Đây là nền an toàn để các phase sau dùng cùng một policy trước khi chạm inbound/UI lớn.
+
+**Verification:** `node --check` cho `telegram-policy.js`, `telegram-memory.js`, `check-telegram-memory-contract.js` PASS; `check-telegram-memory-contract.js` PASS static guards; `check-api-doc-drift.js` PASS; `generate-system-map.js --check` PASS sau khi regenerate map. Runtime DB filtering trong contract vẫn skip ở source clone do `better-sqlite3` ABI khác Node hiện tại.
+
+**State:** Phase 1 policy foundation done in source branch; chưa build/cài runtime.
+
+---
+
 ### Telegram priority + Zalo-parity hardening
 
 **File(s):** `electron/lib/telegram-memory.js`, `electron/lib/cron-api.js`, `electron/lib/cron.js`, `electron/lib/channels.js`, `electron/lib/appointments.js`, `AGENTS.md`, `MEMORY.md`, `skills/operations/telegram-ceo.md`, `skills/appointments.md`, `electron/scripts/check-telegram-memory-contract.js`, `docs/telegram-zalo-architecture-parity.md`, `docs/plans/2026-07-08-telegram-zalo-parity-hardening.md`
