@@ -88,6 +88,17 @@ async function run() {
       && directoryEntry.aliases.includes('LLK')
       && directory.scoreTelegramDirectoryEntry(directoryEntry, 'LLK-999999') > 0,
       JSON.stringify(directoryEntry));
+    const directoryCounts = directory.summarizeTelegramDirectory([
+      directoryEntry,
+      directory.buildTelegramDirectoryEntry({ chatId: '8406640669', chatType: 'private', role: 'unknown' }),
+      directory.buildTelegramDirectoryEntry({ chatId: '1234567890', chatType: 'unknown', role: 'customer' }),
+    ]);
+    assert('telegram directory counts keep role unknown separate from unknown chat kind',
+      directoryCounts.unknown === 1
+      && directoryCounts.unknownKind === 1
+      && directoryCounts.private === 1
+      && directoryCounts.group === 1,
+      JSON.stringify(directoryCounts));
     const bound = sessionBindings.bindTelegramSession({
       chatId: '-1003857797941',
       threadId: '7',

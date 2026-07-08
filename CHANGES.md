@@ -6,6 +6,21 @@
 
 ## 2026-07-08
 
+### Telegram directory counts disambiguation
+
+**File(s):** `electron/lib/telegram-directory.js`, `electron/scripts/check-telegram-memory-contract.js`
+
+**Root cause:** Telegram directory summary reused `unknown` for both role counts and chat-kind counts. When a row had an unknown chat type, API counts could inflate the "Chua ro" role number and make Telegram less predictable than the Zalo manager model.
+
+**Fix/Change:**
+- Keep `counts.unknown` dedicated to the unknown role.
+- Add `counts.unknownKind` for unknown chat type/directory kind.
+- Add a Telegram memory contract assertion so this does not regress.
+
+**Verification:** `node --check` for changed files PASS; `node electron/scripts/check-telegram-memory-contract.js` PASS; `npm.cmd run guard:architecture` PASS.
+
+---
+
 ### Windows local unsigned build guard
 
 **File(s):** `electron/scripts/build-win.js`

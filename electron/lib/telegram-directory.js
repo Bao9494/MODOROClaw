@@ -192,6 +192,7 @@ function summarizeTelegramDirectory(entries = []) {
     internal: 0,
     customer: 0,
     unknown: 0,
+    unknownKind: 0,
     enabled: 0,
     group: 0,
     channel: 0,
@@ -200,7 +201,8 @@ function summarizeTelegramDirectory(entries = []) {
   for (const entry of entries) {
     if (Object.prototype.hasOwnProperty.call(counts, entry.role)) counts[entry.role] += 1;
     if (entry.enabled !== false) counts.enabled += 1;
-    if (Object.prototype.hasOwnProperty.call(counts, entry.directoryKind)) counts[entry.directoryKind] += 1;
+    if (['group', 'channel', 'private'].includes(entry.directoryKind)) counts[entry.directoryKind] += 1;
+    else counts.unknownKind += 1;
   }
   return counts;
 }
