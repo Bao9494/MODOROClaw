@@ -157,7 +157,15 @@ async function run() {
     assert('workspace seeds telegram memory dir', workspaceSrc.includes("'memory', 'telegram-chats'"));
     assert('telegram manager IPC handlers exist', dashboardSrc.includes("list-telegram-conversations") && dashboardSrc.includes("save-telegram-conversation-settings") && dashboardSrc.includes("seed-telegram-conversations"), 'missing dashboard IPC handlers');
     assert('telegram manager preload bridge exists', preloadSrc.includes('listTelegramConversations') && preloadSrc.includes('saveTelegramConversationSettings') && preloadSrc.includes('readTelegramConversationMemory'), 'missing preload bridge');
-    assert('telegram manager UI exists', uiSrc.includes('tg-conversations-list') && uiSrc.includes('renderTelegramConversations') && uiSrc.includes('switchTelegramConversationTab'), 'missing Telegram manager UI');
+    assert('telegram manager UI exists',
+      uiSrc.includes('tg-groups-list')
+      && uiSrc.includes('tg-people-list')
+      && uiSrc.includes('renderTelegramConversations')
+      && uiSrc.includes("switchTelegramConversationTab('groups'")
+      && uiSrc.includes("switchTelegramConversationTab('people'")
+      && uiSrc.includes('updateTelegramConversationResponseMode')
+      && uiSrc.includes('setTelegramPaneEnabled'),
+      'missing Telegram split manager UI');
 
     tg.writeTelegramDirectoryCache({
       entries: [{

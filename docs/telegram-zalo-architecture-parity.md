@@ -58,7 +58,7 @@ Kết luận: hiệu quả chính đến từ việc filter trước khi scoring
 | Inbound context foundation | `electron/lib/telegram-inbound-context.js` đóng gói conversation/sender/thread/message/policy để nhúng vào memory prompt block | Đã thêm nền tảng |
 | Conversation/session binding | `electron/lib/telegram-session-bindings.js` bind session theo `telegram:<chatId>` hoặc `telegram:<chatId>:thread:<threadId>` | Đã thêm nền tảng |
 | Message refs | `electron/lib/telegram-message-refs.js` nhớ latest message theo chat/thread để reply/edit/delete/pin sau này | Đã thêm nền tảng |
-| UI quản lý conversation | Tab Telegram có danh sách chat/group, bộ lọc CEO/nội bộ/khách, nút xem hồ sơ, role select và bật/tắt conversation | Đã thêm |
+| UI quản lý conversation | Tab Telegram có bảng 2 cột Group/Channel và Private/CEO/DM, bộ lọc riêng từng cột, nút xem hồ sơ, role select, responseMode select và bật/tắt/bulk action theo conversation | Đã thêm foundation |
 | Seed danh sách conversation | `telegram-memory.js` đọc `openclaw.json`, `custom-crons.json`, log/cache Telegram và profile đã có để seed `memory/telegram-chats/<chatId>.md` | Đã thêm nền tảng |
 | Directory/cache Telegram | `electron/lib/telegram-directory.js`, `telegram-directory.json`, `/api/telegram/directory`, `/api/telegram/directory/refresh` | Đã thêm nền tảng |
 | Regression guard | `smoke-test.js`, `check-media-library-contract.js`, `check-telegram-memory-contract.js` | Đã thêm |
@@ -84,7 +84,7 @@ Kết luận: hiệu quả chính đến từ việc filter trước khi scoring
 
 ## Trạng thái full parity
 
-Bản 2026-07-08 mới đạt nền tảng parity ở routing, API lookup/send, profile conversation, policy foundation, directory/cache foundation, inbound context foundation, session binding foundation, message refs foundation và một phần UI quản lý. Telegram chưa đạt full parity với Zalo vì còn thiếu channel spine riêng, provider hook thật sự cho inbound/outbound refs, member/topic cache và UI 2 cột như Zalo.
+Bản 2026-07-08 mới đạt nền tảng parity ở routing, API lookup/send, profile conversation, policy foundation, directory/cache foundation, inbound context foundation, session binding foundation, message refs foundation và UI 2 cột foundation như Zalo. Telegram chưa đạt full parity với Zalo vì còn thiếu channel spine riêng, provider hook thật sự cho inbound/outbound refs, member/topic cache, UI nhập/sửa alias/member/topic chi tiết và kiểm thử runtime sau build.
 
 Plan triển khai triệt để nằm ở `docs/plans/2026-07-08-telegram-zalo-full-parity-architecture.md`.
 
@@ -94,7 +94,7 @@ Telegram đã được mô phỏng theo Zalo ở ba lớp:
 
 1. Lớp routing cron: target normalization, context capture, persisted delivery target, shared resolver, explicit outbound target.
 2. Lớp memory/audience nền tảng: conversation profile, role, scope hints, actor-scoped memory retrieval, prompt context block.
-3. Lớp quản trị Dashboard: danh sách Telegram conversations, role CEO/nội bộ/khách, xem hồ sơ riêng và seed hồ sơ từ dữ liệu runtime đang có.
+3. Lớp quản trị Dashboard: bảng Telegram 2 cột Group/Channel và Private/CEO/DM, role CEO/nội bộ/khách/chưa rõ, responseMode, bật/tắt, bulk action, xem hồ sơ riêng và seed hồ sơ từ dữ liệu runtime đang có.
 
 Từ bản cập nhật 2026-07-08, Telegram còn có thêm lớp điều phối API giống Zalo:
 

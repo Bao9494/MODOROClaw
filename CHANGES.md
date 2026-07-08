@@ -6,6 +6,28 @@
 
 ## 2026-07-08
 
+### Telegram UI Zalo-parity split manager
+
+**File(s):** `electron/ui/dashboard.html`, `electron/scripts/check-telegram-memory-contract.js`, `docs/plans/2026-07-08-telegram-zalo-full-parity-architecture.md`
+
+**Root cause:** Telegram đã có policy, directory, inbound context, session binding và message refs foundation, nhưng Dashboard vẫn là một danh sách kỹ thuật gộp chung. Zalo có UI 2 cột rõ ràng cho nhóm/bạn bè với tab, bật/tắt và phân loại; Telegram cần cấu trúc tương tự để vận hành như kênh chính.
+
+**Fix/Change:**
+- Đổi Telegram manager thành UI 2 cột: `Nhóm / kênh` và `Cá nhân / CEO / DM`.
+- Mỗi cột có tab riêng: tất cả, đang bật, nội bộ, khách, chưa rõ; cột cá nhân có thêm CEO.
+- Mỗi row hiển thị role, response mode, target ID, alias, nguồn dữ liệu và số tin đã lưu nếu có.
+- Thêm control `responseMode`: `Tắt`, `@mention`, `Mọi tin`, `CEO ưu tiên`.
+- Thêm bulk bật/tắt theo từng cột.
+- Cập nhật contract test để khóa UI split mới.
+
+**Tradeoff/Decision:** Chưa thêm UI nhập alias/member/topic chi tiết. Phase này chỉ đổi bảng điều phối để dùng được dữ liệu directory/policy hiện có, tránh đụng provider sâu.
+
+**Verification:** `check-telegram-memory-contract.js` PASS; source UI references cũ `tg-conversations-list`/single tab đã được thay bằng split manager guard.
+
+**State:** Phase 4 UI parity foundation done in source branch; chưa build/cài runtime.
+
+---
+
 ### Telegram session binding and message refs foundation
 
 **File(s):** `electron/lib/telegram-session-bindings.js`, `electron/lib/telegram-message-refs.js`, `electron/lib/telegram-inbound-context.js`, `electron/scripts/check-telegram-memory-contract.js`, `docs/plans/2026-07-08-telegram-zalo-full-parity-architecture.md`

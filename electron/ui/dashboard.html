@@ -3004,12 +3004,18 @@
           #page-telegram .tg-manager-sub { margin-top:4px; color:var(--text-muted); font-size:12px; line-height:1.4; }
           #page-telegram .tg-manager-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
           #page-telegram .tg-manager-toolbar { padding:10px 18px 12px; border-bottom:1px solid var(--border); }
-          #page-telegram .tg-conv-list { max-height:460px; overflow:auto; padding:10px 12px 14px; }
+          #page-telegram .tg-split { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:12px; min-height:420px; }
+          #page-telegram .tg-split-col { display:flex; flex-direction:column; min-width:0; min-height:0; border:1px solid var(--border); border-radius:10px; background:var(--bg); padding:10px; }
+          #page-telegram .tg-col-header { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; }
+          #page-telegram .tg-col-title { font-size:14px; font-weight:750; color:var(--text); }
+          #page-telegram .tg-col-count { font-size:12px; color:var(--accent); font-weight:650; }
+          #page-telegram .tg-conv-list { flex:1; min-height:0; max-height:520px; overflow:auto; padding:2px 2px 4px; }
           #page-telegram .tg-conv { display:flex; align-items:center; gap:12px; padding:11px 12px; border:1px solid var(--border); border-left:3px solid transparent; border-radius:8px; background:var(--bg); margin-bottom:8px; transition:border-color .15s, background .15s, opacity .15s; }
           #page-telegram .tg-conv:hover { border-color:var(--border-strong); }
           #page-telegram .tg-conv-role-ceo { border-left-color:#6366f1; }
           #page-telegram .tg-conv-role-internal { border-left-color:#22c55e; }
           #page-telegram .tg-conv-role-customer { border-left-color:#eab308; }
+          #page-telegram .tg-conv-role-unknown { border-left-color:#94a3b8; }
           #page-telegram .tg-conv-off { opacity:.58; }
           #page-telegram .tg-conv-avatar { width:34px; height:34px; border-radius:50%; border:1px solid var(--border); background:var(--surface); display:inline-flex; align-items:center; justify-content:center; color:var(--text-muted); flex-shrink:0; }
           #page-telegram .tg-conv-body { flex:1 1 0; min-width:0; }
@@ -3019,14 +3025,18 @@
           #page-telegram .tg-role-badge.ceo { color:#4f46e5; background:rgba(99,102,241,.10); }
           #page-telegram .tg-role-badge.internal { color:#16a34a; background:rgba(34,197,94,.11); }
           #page-telegram .tg-role-badge.customer { color:#a16207; background:rgba(234,179,8,.13); }
+          #page-telegram .tg-role-badge.unknown { color:#64748b; background:rgba(148,163,184,.16); }
           #page-telegram .tg-conv-meta { font-size:12px; color:var(--text-muted); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.35; }
           #page-telegram .tg-conv-actions { display:flex; align-items:center; gap:8px; flex-shrink:0; }
           #page-telegram .tg-role-select { height:28px; padding:4px 8px; background:var(--surface); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; cursor:pointer; }
           #page-telegram .tg-role-select:focus { outline:none; border-color:var(--accent); }
+          #page-telegram .tg-mode-select { height:28px; padding:4px 8px; background:var(--surface); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; cursor:pointer; }
+          #page-telegram .tg-mode-select:focus { outline:none; border-color:var(--accent); }
           #page-telegram .tg-empty { color:var(--text-muted); font-size:13px; text-align:center; padding:36px 12px; }
           @media (max-width: 820px) {
             #page-telegram .tg-manager-head { flex-direction:column; }
             #page-telegram .tg-manager-actions { justify-content:flex-start; }
+            #page-telegram .tg-split { grid-template-columns:1fr; }
             #page-telegram .tg-conv { align-items:flex-start; }
             #page-telegram .tg-conv-actions { flex-direction:column; align-items:flex-end; gap:6px; }
           }
@@ -3101,16 +3111,48 @@
             </div>
           </div>
           <div class="tg-manager-toolbar">
-            <div class="zalo-segments" id="telegram-conversation-segments">
-              <button class="zalo-seg active" data-tab="all" onclick="switchTelegramConversationTab('all')">Tất cả <span id="tg-seg-all">0</span></button>
-              <button class="zalo-seg" data-tab="ceo" onclick="switchTelegramConversationTab('ceo')">CEO <span id="tg-seg-ceo">0</span></button>
-              <button class="zalo-seg" data-tab="internal" onclick="switchTelegramConversationTab('internal')">Nội bộ <span id="tg-seg-internal">0</span></button>
-              <button class="zalo-seg" data-tab="customer" onclick="switchTelegramConversationTab('customer')">Khách <span id="tg-seg-customer">0</span></button>
-            </div>
-            <input type="text" class="zalo-mgr-search" id="tg-conversation-search" placeholder="Tìm chat, group, ID..." oninput="renderTelegramConversations()" style="margin-bottom:0">
+            <input type="text" class="zalo-mgr-search" id="tg-conversation-search" placeholder="Tìm chat, group, username, alias, ID..." oninput="renderTelegramConversations()" style="margin-bottom:0">
           </div>
-          <div class="tg-conv-list" id="tg-conversations-list">
-            <div class="tg-empty">Đang tải danh sách Telegram...</div>
+          <div class="tg-split">
+            <div class="tg-split-col">
+              <div class="tg-col-header">
+                <div><span class="tg-col-title">Nhóm / kênh</span> <span class="tg-col-count" id="tg-groups-count">0</span></div>
+              </div>
+              <div class="zalo-segments" id="telegram-groups-segments">
+                <button class="zalo-seg active" data-tab="all" onclick="switchTelegramConversationTab('groups','all')">Tất cả<span class="seg-count" id="tg-seg-groups-all">0</span></button>
+                <button class="zalo-seg" data-tab="active" onclick="switchTelegramConversationTab('groups','active')">Đang bật<span class="seg-count" id="tg-seg-groups-active">0</span></button>
+                <button class="zalo-seg" data-tab="internal" onclick="switchTelegramConversationTab('groups','internal')">Nội bộ<span class="seg-count" id="tg-seg-groups-internal">0</span></button>
+                <button class="zalo-seg" data-tab="customer" onclick="switchTelegramConversationTab('groups','customer')">Khách<span class="seg-count" id="tg-seg-groups-customer">0</span></button>
+                <button class="zalo-seg" data-tab="unknown" onclick="switchTelegramConversationTab('groups','unknown')">Chưa rõ<span class="seg-count" id="tg-seg-groups-unknown">0</span></button>
+              </div>
+              <div class="zalo-bulk-actions">
+                <button class="zalo-bulk-btn zalo-bulk-on" onclick="setTelegramPaneEnabled('groups', true)">Bật tất cả</button>
+                <button class="zalo-bulk-btn zalo-bulk-off" onclick="setTelegramPaneEnabled('groups', false)">Tắt tất cả</button>
+              </div>
+              <div class="tg-conv-list" id="tg-groups-list">
+                <div class="tg-empty">Đang tải nhóm Telegram...</div>
+              </div>
+            </div>
+            <div class="tg-split-col">
+              <div class="tg-col-header">
+                <div><span class="tg-col-title">Cá nhân / CEO / DM</span> <span class="tg-col-count" id="tg-people-count">0</span></div>
+              </div>
+              <div class="zalo-segments" id="telegram-people-segments">
+                <button class="zalo-seg active" data-tab="all" onclick="switchTelegramConversationTab('people','all')">Tất cả<span class="seg-count" id="tg-seg-people-all">0</span></button>
+                <button class="zalo-seg" data-tab="active" onclick="switchTelegramConversationTab('people','active')">Đang bật<span class="seg-count" id="tg-seg-people-active">0</span></button>
+                <button class="zalo-seg" data-tab="ceo" onclick="switchTelegramConversationTab('people','ceo')">CEO<span class="seg-count" id="tg-seg-people-ceo">0</span></button>
+                <button class="zalo-seg" data-tab="internal" onclick="switchTelegramConversationTab('people','internal')">Nội bộ<span class="seg-count" id="tg-seg-people-internal">0</span></button>
+                <button class="zalo-seg" data-tab="customer" onclick="switchTelegramConversationTab('people','customer')">Khách<span class="seg-count" id="tg-seg-people-customer">0</span></button>
+                <button class="zalo-seg" data-tab="unknown" onclick="switchTelegramConversationTab('people','unknown')">Chưa rõ<span class="seg-count" id="tg-seg-people-unknown">0</span></button>
+              </div>
+              <div class="zalo-bulk-actions">
+                <button class="zalo-bulk-btn zalo-bulk-on" onclick="setTelegramPaneEnabled('people', true)">Bật tất cả</button>
+                <button class="zalo-bulk-btn zalo-bulk-off" onclick="setTelegramPaneEnabled('people', false)">Tắt tất cả</button>
+              </div>
+              <div class="tg-conv-list" id="tg-people-list">
+                <div class="tg-empty">Đang tải cá nhân Telegram...</div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -10004,13 +10046,14 @@
     // --- Telegram config: "Đổi tài khoản" modal ---
     // --- Telegram conversation manager ---
     let telegramConversations = [];
-    let telegramConversationCounts = { total: 0, ceo: 0, internal: 0, customer: 0, enabled: 0 };
-    let _telegramConversationTab = 'all';
+    let telegramConversationCounts = { total: 0, ceo: 0, internal: 0, customer: 0, unknown: 0, enabled: 0, groups: 0, people: 0 };
+    let _telegramConversationTabs = { groups: 'all', people: 'all' };
     let _telegramConversationLoadInFlight = false;
 
     function telegramRoleLabel(role) {
       if (role === 'ceo') return 'CEO';
       if (role === 'internal') return 'Nội bộ';
+      if (role === 'unknown') return 'Chưa rõ';
       return 'Khách';
     }
 
@@ -10024,7 +10067,39 @@
     }
 
     function telegramRoleClass(role) {
-      return role === 'ceo' ? 'ceo' : role === 'internal' ? 'internal' : 'customer';
+      return role === 'ceo' ? 'ceo' : role === 'internal' ? 'internal' : role === 'unknown' ? 'unknown' : 'customer';
+    }
+
+    function telegramResponseModeLabel(mode) {
+      if (mode === 'off') return 'Tắt';
+      if (mode === 'mention') return '@mention';
+      if (mode === 'all') return 'Mọi tin';
+      if (mode === 'ceo_priority') return 'CEO ưu tiên';
+      return '@mention';
+    }
+
+    function isTelegramGroupPaneConversation(c) {
+      const kind = String(c.directoryKind || '').toLowerCase();
+      const type = String(c.chatType || '').toLowerCase();
+      if (['group', 'channel'].includes(kind)) return true;
+      if (['group', 'supergroup', 'channel'].includes(type)) return true;
+      return String(c.chatId || '').startsWith('-');
+    }
+
+    function getTelegramPaneRows(pane) {
+      return telegramConversations.filter(c => pane === 'groups' ? isTelegramGroupPaneConversation(c) : !isTelegramGroupPaneConversation(c));
+    }
+
+    function telegramPaneCounts(pane) {
+      const rows = getTelegramPaneRows(pane);
+      return {
+        all: rows.length,
+        active: rows.filter(c => c.enabled !== false).length,
+        ceo: rows.filter(c => c.role === 'ceo').length,
+        internal: rows.filter(c => c.role === 'internal').length,
+        customer: rows.filter(c => c.role === 'customer').length,
+        unknown: rows.filter(c => c.role === 'unknown').length,
+      };
     }
 
     function telegramSourcesLabel(sources) {
@@ -10034,6 +10109,8 @@
         'custom-crons': 'cron',
         'runtime-logs': 'log',
         'provider-cache': 'cache',
+        'directory-cache': 'directory',
+        'openclaw-sessions': 'session',
         profile: 'hồ sơ',
         settings: 'settings',
       };
@@ -10046,31 +10123,43 @@
         ceo: telegramConversations.filter(c => c.role === 'ceo').length,
         internal: telegramConversations.filter(c => c.role === 'internal').length,
         customer: telegramConversations.filter(c => c.role === 'customer').length,
+        unknown: telegramConversations.filter(c => c.role === 'unknown').length,
         enabled: telegramConversations.filter(c => c.enabled !== false).length,
+        groups: getTelegramPaneRows('groups').length,
+        people: getTelegramPaneRows('people').length,
       };
       telegramConversationCounts = counts;
       const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
       set('tg-conversation-total', counts.total + (counts.enabled !== counts.total ? ` · ${counts.enabled} bật` : ''));
-      set('tg-seg-all', counts.total);
-      set('tg-seg-ceo', counts.ceo);
-      set('tg-seg-internal', counts.internal);
-      set('tg-seg-customer', counts.customer);
+      set('tg-groups-count', counts.groups);
+      set('tg-people-count', counts.people);
+      for (const pane of ['groups', 'people']) {
+        const pc = telegramPaneCounts(pane);
+        for (const key of ['all', 'active', 'ceo', 'internal', 'customer', 'unknown']) {
+          set(`tg-seg-${pane}-${key}`, pc[key] || 0);
+        }
+      }
     }
 
-    function switchTelegramConversationTab(tab) {
-      _telegramConversationTab = ['all', 'ceo', 'internal', 'customer'].includes(tab) ? tab : 'all';
-      const seg = document.getElementById('telegram-conversation-segments');
-      if (seg) seg.querySelectorAll('.zalo-seg').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === _telegramConversationTab));
-      const input = document.getElementById('tg-conversation-search');
-      if (input) input.value = '';
+    function switchTelegramConversationTab(pane, tab) {
+      const cleanPane = pane === 'people' ? 'people' : 'groups';
+      const allowed = ['all', 'active', 'ceo', 'internal', 'customer', 'unknown'];
+      _telegramConversationTabs[cleanPane] = allowed.includes(tab) ? tab : 'all';
+      const seg = document.getElementById(cleanPane === 'groups' ? 'telegram-groups-segments' : 'telegram-people-segments');
+      if (seg) seg.querySelectorAll('.zalo-seg').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === _telegramConversationTabs[cleanPane]));
       renderTelegramConversations();
     }
 
     async function loadTelegramConversations(opts = {}) {
       if (_telegramConversationLoadInFlight && !opts.force) return;
       _telegramConversationLoadInFlight = true;
-      const list = document.getElementById('tg-conversations-list');
-      if (list && !opts.preserveDraft) list.innerHTML = '<div class="zalo-list-loading"><div class="spinner"></div>Đang tải Telegram...</div>';
+      const groupList = document.getElementById('tg-groups-list');
+      const peopleList = document.getElementById('tg-people-list');
+      if (!opts.preserveDraft) {
+        const loading = '<div class="zalo-list-loading"><div class="spinner"></div>Đang tải Telegram...</div>';
+        if (groupList) groupList.innerHTML = loading;
+        if (peopleList) peopleList.innerHTML = loading;
+      }
       try {
         const result = await window.claw.listTelegramConversations();
         if (!result?.success) throw new Error(result?.error || 'Không tải được Telegram conversations');
@@ -10078,18 +10167,26 @@
         updateTelegramConversationCounts();
         renderTelegramConversations();
       } catch (e) {
-        if (list) list.innerHTML = '<div class="tg-empty">Lỗi tải Telegram: ' + esc(e.message || e) + '</div>';
+        const errorHtml = '<div class="tg-empty">Lỗi tải Telegram: ' + esc(e.message || e) + '</div>';
+        if (groupList) groupList.innerHTML = errorHtml;
+        if (peopleList) peopleList.innerHTML = errorHtml;
       } finally {
         _telegramConversationLoadInFlight = false;
       }
     }
 
     function renderTelegramConversationRow(c) {
-      const role = ['ceo', 'internal', 'customer'].includes(c.role) ? c.role : 'customer';
-      const iconName = ['group', 'supergroup', 'channel'].includes(String(c.chatType || '').toLowerCase()) ? 'users' : 'user';
+      const role = ['ceo', 'internal', 'customer', 'unknown'].includes(c.role) ? c.role : 'customer';
+      const mode = ['off', 'mention', 'all', 'ceo_priority'].includes(c.responseMode) ? c.responseMode : (role === 'ceo' ? 'all' : 'mention');
+      const isGroupLike = isTelegramGroupPaneConversation(c);
+      const iconName = String(c.chatType || '').toLowerCase() === 'channel' ? 'radio' : isGroupLike ? 'users' : 'user';
+      const aliases = Array.isArray(c.aliases) ? c.aliases.filter(Boolean).slice(0, 2).join(', ') : '';
       const meta = [
         telegramChatTypeLabel(c.chatType),
-        c.chatId,
+        c.targetChatId || c.chatId,
+        aliases ? 'alias: ' + aliases : '',
+        telegramResponseModeLabel(mode),
+        Number(c.msgCount) ? `${Number(c.msgCount)} tin đã lưu` : '',
         c.summary,
         telegramSourcesLabel(c.sources),
       ].filter(Boolean);
@@ -10108,6 +10205,13 @@
             <option value="ceo" ${role === 'ceo' ? 'selected' : ''}>CEO</option>
             <option value="internal" ${role === 'internal' ? 'selected' : ''}>Nội bộ</option>
             <option value="customer" ${role === 'customer' ? 'selected' : ''}>Khách</option>
+            <option value="unknown" ${role === 'unknown' ? 'selected' : ''}>Chưa rõ</option>
+          </select>
+          <select class="tg-mode-select" onchange="updateTelegramConversationResponseMode('${escAttr(escJs(c.chatId))}', this.value)" title="Chế độ phản hồi">
+            <option value="off" ${mode === 'off' ? 'selected' : ''}>Tắt</option>
+            <option value="mention" ${mode === 'mention' ? 'selected' : ''}>@mention</option>
+            <option value="all" ${mode === 'all' ? 'selected' : ''}>Mọi tin</option>
+            <option value="ceo_priority" ${mode === 'ceo_priority' ? 'selected' : ''}>CEO ưu tiên</option>
           </select>
           <label class="internal-flag" title="Bật/tắt conversation trong cấu hình Telegram manager"><input type="checkbox" ${c.enabled !== false ? 'checked' : ''} onchange="updateTelegramConversationEnabled('${escAttr(escJs(c.chatId))}', this.checked)">Bật</label>
         </div>
@@ -10115,53 +10219,84 @@
     }
 
     function renderTelegramConversations() {
-      const list = document.getElementById('tg-conversations-list');
-      if (!list) return;
+      const groupList = document.getElementById('tg-groups-list');
+      const peopleList = document.getElementById('tg-people-list');
+      if (!groupList && !peopleList) return;
       const input = document.getElementById('tg-conversation-search');
       const q = String(input?.value || '').trim().toLowerCase();
       updateTelegramConversationCounts();
-      let rows = telegramConversations.slice();
-      if (_telegramConversationTab !== 'all') rows = rows.filter(c => c.role === _telegramConversationTab);
-      if (q) {
-        rows = rows.filter(c => [
-          c.label,
-          c.chatId,
-          c.chatType,
-          c.summary,
-          ...(Array.isArray(c.sources) ? c.sources : []),
-        ].join(' ').toLowerCase().includes(q));
-      }
-      if (!rows.length) {
-        const empty = q
-          ? 'Không tìm thấy conversation Telegram.'
-          : 'Chưa có dữ liệu Telegram. Bấm "Seed từ dữ liệu có sẵn" để đọc cấu hình, cron, log và cache hiện có.';
-        list.innerHTML = '<div class="tg-empty">' + empty + '</div>';
-        return;
-      }
-      rows.sort((a, b) => {
+      const sortRows = (rows) => rows.sort((a, b) => {
         const pa = a.enabled === false ? 1 : 0;
         const pb = b.enabled === false ? 1 : 0;
         if (pa !== pb) return pa - pb;
-        const rank = { ceo: 0, internal: 1, customer: 2 };
+        const rank = { ceo: 0, internal: 1, customer: 2, unknown: 3 };
         const ra = rank[a.role] ?? 3;
         const rb = rank[b.role] ?? 3;
         if (ra !== rb) return ra - rb;
         return (a.label || '').localeCompare(b.label || '');
       });
-      list.innerHTML = rows.map(renderTelegramConversationRow).join('');
+      const renderPane = (pane, target) => {
+        if (!target) return;
+        let rows = getTelegramPaneRows(pane);
+        const tab = _telegramConversationTabs[pane] || 'all';
+        if (tab === 'active') rows = rows.filter(c => c.enabled !== false);
+        else if (tab !== 'all') rows = rows.filter(c => c.role === tab);
+        if (q) {
+          rows = rows.filter(c => [
+            c.label,
+            c.chatId,
+            c.targetChatId,
+            c.chatType,
+            c.directoryKind,
+            c.username,
+            c.summary,
+            c.responseMode,
+            ...(Array.isArray(c.aliases) ? c.aliases : []),
+            ...(Array.isArray(c.sources) ? c.sources : []),
+          ].join(' ').toLowerCase().includes(q));
+        }
+        if (!rows.length) {
+          const empty = q
+            ? 'Không tìm thấy conversation Telegram.'
+            : pane === 'groups'
+              ? 'Chưa có nhóm/kênh Telegram. Bấm "Seed từ dữ liệu có sẵn" để đọc cấu hình, cron, log và cache hiện có.'
+              : 'Chưa có cá nhân/DM Telegram trong directory.';
+          target.innerHTML = '<div class="tg-empty">' + empty + '</div>';
+          return;
+        }
+        target.innerHTML = sortRows(rows).map(renderTelegramConversationRow).join('');
+      };
+      renderPane('groups', groupList);
+      renderPane('people', peopleList);
       mountIcons();
     }
 
     async function updateTelegramConversationRole(chatId, role) {
       const row = telegramConversations.find(c => c.chatId === chatId);
       if (!row) return;
-      row.role = ['ceo', 'internal', 'customer'].includes(role) ? role : 'customer';
+      row.role = ['ceo', 'internal', 'customer', 'unknown'].includes(role) ? role : 'customer';
       try {
         const result = await window.claw.saveTelegramConversationSettings({ conversations: [row] });
         if (!result?.success) throw new Error(result?.error || 'Không lưu được');
         telegramConversations = Array.isArray(result.conversations) ? result.conversations : telegramConversations;
         renderTelegramConversations();
         showToast('Đã lưu phân tầng Telegram: ' + telegramRoleLabel(row.role), 'success');
+      } catch (e) {
+        showToast('Lỗi lưu Telegram: ' + (e.message || e), 'error');
+        loadTelegramConversations({ preserveDraft: true, force: true });
+      }
+    }
+
+    async function updateTelegramConversationResponseMode(chatId, responseMode) {
+      const row = telegramConversations.find(c => c.chatId === chatId);
+      if (!row) return;
+      row.responseMode = ['off', 'mention', 'all', 'ceo_priority'].includes(responseMode) ? responseMode : 'mention';
+      try {
+        const result = await window.claw.saveTelegramConversationSettings({ conversations: [row] });
+        if (!result?.success) throw new Error(result?.error || 'Không lưu được');
+        telegramConversations = Array.isArray(result.conversations) ? result.conversations : telegramConversations;
+        renderTelegramConversations();
+        showToast('Đã lưu chế độ Telegram: ' + telegramResponseModeLabel(row.responseMode), 'success');
       } catch (e) {
         showToast('Lỗi lưu Telegram: ' + (e.message || e), 'error');
         loadTelegramConversations({ preserveDraft: true, force: true });
@@ -10178,6 +10313,21 @@
         telegramConversations = Array.isArray(result.conversations) ? result.conversations : telegramConversations;
         renderTelegramConversations();
         showToast(enabled ? 'Đã bật Telegram conversation' : 'Đã tắt Telegram conversation', 'info');
+      } catch (e) {
+        showToast('Lỗi lưu Telegram: ' + (e.message || e), 'error');
+        loadTelegramConversations({ preserveDraft: true, force: true });
+      }
+    }
+
+    async function setTelegramPaneEnabled(pane, enabled) {
+      const rows = getTelegramPaneRows(pane).map(row => ({ ...row, enabled: !!enabled }));
+      if (!rows.length) return;
+      try {
+        const result = await window.claw.saveTelegramConversationSettings({ conversations: rows });
+        if (!result?.success) throw new Error(result?.error || 'Không lưu được');
+        telegramConversations = Array.isArray(result.conversations) ? result.conversations : telegramConversations;
+        renderTelegramConversations();
+        showToast(enabled ? 'Đã bật các Telegram conversation trong cột này' : 'Đã tắt các Telegram conversation trong cột này', 'success');
       } catch (e) {
         showToast('Lỗi lưu Telegram: ' + (e.message || e), 'error');
         loadTelegramConversations({ preserveDraft: true, force: true });
