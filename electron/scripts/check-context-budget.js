@@ -42,8 +42,8 @@ function testPremiumDefaultFloor() {
   assert.strictEqual(cfg.agents.defaults.contextTokens, 200000);
   assert.strictEqual(cfg.models.providers.ninerouter.models[0].contextWindow, 200000);
   assert.strictEqual(cfg.models.providers.ninerouter.models[0].contextTokens, 200000);
-  assert.strictEqual(cfg.models.providers.ninerouter.models[1].contextWindow, 200000);
-  assert.strictEqual(cfg.models.providers.ninerouter.models[1].contextTokens, 200000);
+  assert.strictEqual(cfg.models.providers.ninerouter.models[1].contextWindow, 272000);
+  assert.strictEqual(cfg.models.providers.ninerouter.models[1].contextTokens, 272000);
   assert.strictEqual(cfg.agents.defaults.bootstrapMaxChars, resolveBootstrapMaxCharsForContext(200000));
   assert.strictEqual(cfg.agents.defaults.bootstrapTotalMaxChars, resolveBootstrapTotalMaxCharsForContext(200000));
 }
