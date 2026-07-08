@@ -22,6 +22,7 @@ let shell;
 try { shell = require('electron').shell; } catch {}
 
 let _cronApiServer = null;
+let _cronApiStarting = false;
 let _cronApiPort = 20200;
 let _cronApiToken = '';
 
@@ -275,6 +276,11 @@ function resolveOptionalTelegramTargetForCron(params = {}, headers = {}) {
 
 function startCronApi() {
   if (_cronApiServer) return;
+  if (_cronApiStarting) {
+    console.log('[cron-api] start skipped — already starting');
+    return;
+  }
+  _cronApiStarting = true;
   const http = require('http');
   const crypto = require('crypto');
   const nodeCron = require('node-cron');
@@ -3540,6 +3546,7 @@ function startCronApi() {
   function tryListen(port, retries) {
     server.listen(port, '127.0.0.1', () => {
       _cronApiServer = server;
+      _cronApiStarting = false;
       _cronApiPort = server.address().port;
       console.log('[cron-api] listening on http://127.0.0.1:' + _cronApiPort);
     });
@@ -3550,6 +3557,7 @@ function startCronApi() {
         tryListen(port + 1, retries - 1);
       } else {
         console.error('[cron-api] server error:', err.message);
+        _cronApiStarting = false;
         _cronApiPort = null;
         try { sendCeoAlert('[Cron API] Không khởi động được HTTP server: ' + err.message); } catch {}
       }
@@ -3584,6 +3592,7 @@ function cleanupCronApi() {
     try { _cronApiServer.close(); } catch {}
     _cronApiServer = null;
   }
+  _cronApiStarting = false;
 }
 
 module.exports = { startCronApi, getCronApiToken, getCronApiPort, cleanupCronApi };

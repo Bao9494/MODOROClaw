@@ -71,8 +71,11 @@ Lam Telegram tro thanh kenh uu tien va co kien truc gan voi Zalo: tra chat/group
   - Da offload mot phan build artifact cu sang `O:\project\9bizclaw\backups\offloaded-temp-20260708-135024` va xoa 2 thu muc temp build/check cu `MODOROClaw-build-main`, `MODOROClaw-vendor-check`.
   - O C tang len khoang `14.76GB` trong; test ghi/xoa file nho trong `.openclaw\agents\main\sessions` va `%APPDATA%\9bizclaw` PASS.
   - Sau cleanup: gateway `18789` status `200`, Telegram lookup `-1003857797941` trong `346ms`, 9Router `model=zalo` tra `pong` trong `3598ms`.
+- Cron API duplicate-port source fix PASS:
+  - Root cause: nhieu duong boot goi `startCronApi()` gan nhau, trong khi `_cronApiServer` chi duoc set sau `listen()`, nen lan goi thu hai co the mo them `20201`.
+  - Source fix: them `_cronApiStarting` guard; reset khi listen thanh cong, listen loi that, hoac cleanup.
 - Zalo runtime khong crash nhung dang `ready:false`, reason `disabled` vi Dashboard dang tat Zalo.
-- Residual risk: cron API dang nghe ca `20200` va `20201` trong cung process; chua sua sau vi app dang on dinh va route chinh van dung.
+- Residual risk: runtime dang chay van la process cu da mo ca `20200` va `20201`; source da fix cho build/restart sau, nhung chua restart app lan nua vi route chinh `20200` dang on dinh.
 
 ## Trang thai
 

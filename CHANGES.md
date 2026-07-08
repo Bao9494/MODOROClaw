@@ -42,6 +42,8 @@
 
 **Runtime disk-full recovery note:** During live verification, drive `C:` reached `0GB` free and runtime logs showed `ENOSPC` / `DISK FULL` while Brain, Zalo cache, and OpenClaw session store were writing. Offloaded partial temp build artifacts to `O:\project\9bizclaw\backups\offloaded-temp-20260708-135024` and removed stale temp build/check folders `MODOROClaw-build-main` and `MODOROClaw-vendor-check`; `C:` recovered to ~14.76GB free. Verified small writes in `.openclaw\agents\main\sessions` and `%APPDATA%\9bizclaw`, gateway `18789`, Telegram lookup, and 9Router `model=zalo`.
 
+**Cron API idempotent startup fix:** Startup paths can call `startCronApi()` from main boot, gateway boot, tray, Dashboard, or wizard completion. The server object was only assigned after `listen()`, so near-simultaneous calls could start one server on `20200` and another fallback on `20201` in the same Electron process. Added `_cronApiStarting` so repeated calls while the first server is binding are skipped, and reset it on successful listen, real listen failure, or cleanup.
+
 **Runtime config restore note:** A manual PowerShell JSON write added a UTF-8 BOM to `C:\Users\bao.nguyen\.openclaw\openclaw.json`, which made OpenClaw preflight treat the config as corrupt. Restored the latest backup by stripping the BOM with Node and verified `openclaw.json` parses without BOM.
 
 **State:** done in source branch + runtime installed/verified. Merge/commit pending.
