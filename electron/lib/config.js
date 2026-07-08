@@ -652,9 +652,11 @@ async function ensureDefaultConfig() {
             changed = true;
           }
         }
-        // Ensure 'zalo' model is registered so gateway knows about the zalo combo
+        // Ensure 'zalo' model is registered so gateway knows about the zalo combo.
+        // The actual 9Router combo is kept on supported ChatGPT-account models
+        // by ensure9RouterZaloCombo().
         if (!provider.models.some(m => m && m.id === 'zalo')) {
-          provider.models.push({ id: 'zalo', name: 'Zalo Combo (gpt-5.2)', input: ['text', 'image'] });
+          provider.models.push({ id: 'zalo', name: 'Zalo Combo (gpt-5.4)', input: ['text', 'image'] });
           changed = true;
         }
       }

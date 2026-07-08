@@ -14,22 +14,26 @@ Các file này chứa ngữ cảnh quan trọng. Nạp khi bắt đầu phiên.
 |-----|---------|----------|---------------------|
 | CEO | Chủ nhân | Đọc `IDENTITY.md` | chủ nhân, sếp, boss |
 
-Bot tự tạo hồ sơ khách trong `memory/zalo-users/<senderId>.md` và `memory/zalo-groups/<groupId>.md`.
+Bot tự tạo hồ sơ khách trong `memory/zalo-users/<senderId>.md`, `memory/zalo-groups/<groupId>.md` và hồ sơ Telegram trong `memory/telegram-chats/<chatId>.md`.
 
 ## Quy tắc đi sâu
-1. **Cuộc trò chuyện nhắc đến khách Zalo?** -> Nạp file trong `memory/zalo-users/`
-2. **Nhóm Zalo?** -> Nạp file trong `memory/zalo-groups/`
-3. **Khách Zalo hỏi SP/dịch vụ/giờ/chính sách?** -> CHỈ đọc `knowledge/cong-ty/index.md` + `knowledge/san-pham/index.md` + `knowledge/nhan-vien/index.md`. KHÔNG dùng COMPANY.md / PRODUCTS.md (2 file đó tóm lược từ wizard, không chính xác).
-4. **Không chắc về ngữ cảnh?** -> Dùng `memory_search`
-5. **Bắt đầu phiên:** Persona và tình trạng hôm nay đã inject sẵn vào SOUL.md và USER.md (tự động). KHÔNG cần đọc `active-persona.md` hay `shop-state.json` riêng. Tra knowledge khi cần: `knowledge/cong-ty/index.md` + `knowledge/san-pham/index.md` + `knowledge/nhan-vien/index.md`.
-6. **Giới hạn cứng:** Tối đa 5 lần đi sâu khi bắt đầu phiên
-7. **Thay đổi code:** MỌI thay đổi phải ghi vào `CHANGES.md` TRƯỚC KHI commit. Commit ghi what, CHANGES.md ghi what + why + how.
+1. **Cuộc trò chuyện nhắc đến chat/group Telegram?** -> Tra `/api/telegram/conversations`, rồi nạp `memory/telegram-chats/<chatId>.md`
+2. **Telegram role là `internal`?** -> Có thể nạp knowledge/vận hành nội bộ phù hợp.
+3. **Telegram role là `customer`?** -> Chỉ nạp memory scope customer/public đúng chat đó; không nạp memory CEO/nội bộ.
+4. **Cuộc trò chuyện nhắc đến khách Zalo?** -> Nạp file trong `memory/zalo-users/`
+5. **Nhóm Zalo?** -> Nạp file trong `memory/zalo-groups/`
+6. **Khách Zalo/Telegram customer hỏi SP/dịch vụ/giờ/chính sách?** -> CHỈ đọc `knowledge/cong-ty/index.md` + `knowledge/san-pham/index.md` + `knowledge/nhan-vien/index.md`. KHÔNG dùng COMPANY.md / PRODUCTS.md (2 file đó tóm lược từ wizard, không chính xác).
+7. **Không chắc về ngữ cảnh?** -> Dùng `memory_search`
+8. **Bắt đầu phiên:** Persona và tình trạng hôm nay đã inject sẵn vào SOUL.md và USER.md (tự động). KHÔNG cần đọc `active-persona.md` hay `shop-state.json` riêng. Tra knowledge khi cần: `knowledge/cong-ty/index.md` + `knowledge/san-pham/index.md` + `knowledge/nhan-vien/index.md`.
+9. **Giới hạn cứng:** Tối đa 5 lần đi sâu khi bắt đầu phiên
+10. **Thay đổi code:** MỌI thay đổi phải ghi vào `CHANGES.md` TRƯỚC KHI commit. Commit ghi what, CHANGES.md ghi what + why + how.
 
 ## File tham khảo
 | File | Nội dung |
 |------|----------|
 | `memory/zalo-users/<id>.md` | Hồ sơ khách hàng Zalo (tên, tag, lịch sử) |
 | `memory/zalo-groups/<id>.md` | Hồ sơ nhóm Zalo (thành viên, chủ đề) |
+| `memory/telegram-chats/<chatId>.md` | Hồ sơ chat/group Telegram, role, alias, memory theo từng đối tượng |
 | `knowledge/*/index.md` | Tài liệu doanh nghiệp (công ty, sản phẩm, nhân viên) |
 | `.learnings/LEARNINGS.md` | Bài học từ các phiên trước |
 

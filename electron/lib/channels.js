@@ -273,15 +273,10 @@ async function getCeoSessionKey() {
   try {
     const { chatId } = await getTelegramConfigWithRecovery();
     if (!chatId) return null;
-    // openclaw 2026.4.14: session.dmScope defaults to "main" → all DMs share
-    // key "agent:main:main". Only per-channel-peer uses telegram:direct:<id>.
-    const ocPath = path.join(ctx.HOME, '.openclaw', 'openclaw.json');
-    let dmScope = 'main';
-    try {
-      const oc = readOpenclawJsonFile(ocPath);
-      dmScope = oc?.session?.dmScope || 'main';
-    } catch {}
-    if (dmScope === 'per-channel-peer') return `agent:main:telegram:direct:${chatId}`;
+    // The boot pre-warm creates agent:main:main with deliveryContext pointing to
+    // the CEO Telegram chat. Direct sessions are created lazily by inbound
+    // messages, so they can be missing right after restart and make cron
+    // reminders fall into the slow fallback path.
     return 'agent:main:main';
   } catch { return null; }
 }
@@ -790,8 +785,15 @@ async function sendTelegram(text, { skipFilter = false, skipPauseCheck = false, 
   return doRequest(true);
 }
 
-async function sendTelegramPhoto(imagePath, caption, _retryCount = 0) {
-  if (isChannelPaused('telegram')) {
+async function sendTelegramPhoto(imagePath, caption, optsOrRetry = 0) {
+  const opts = optsOrRetry && typeof optsOrRetry === 'object'
+    ? optsOrRetry
+    : { retryCount: Number(optsOrRetry) || 0 };
+  const _retryCount = Number(opts.retryCount) || 0;
+  const targetChatId = opts.targetChatId != null && String(opts.targetChatId).trim()
+    ? String(opts.targetChatId).trim()
+    : null;
+  if (!opts.skipPauseCheck && isChannelPaused('telegram')) {
     console.log('[sendTelegramPhoto] channel paused — skipping');
     return false;
   }
@@ -803,7 +805,8 @@ async function sendTelegramPhoto(imagePath, caption, _retryCount = 0) {
     }
   }
   const { token, chatId } = getTelegramConfig();
-  if (!token || !chatId) return false;
+  const effectiveChatId = targetChatId || chatId;
+  if (!token || !effectiveChatId) return false;
   if (!fs.existsSync(imagePath)) return false;
 
   const crypto = require('crypto');
@@ -815,7 +818,7 @@ async function sendTelegramPhoto(imagePath, caption, _retryCount = 0) {
   const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : ext === '.gif' ? 'image/gif' : 'image/jpeg';
 
   let body = '';
-  body += `--${boundary}\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n${chatId}\r\n`;
+  body += `--${boundary}\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n${effectiveChatId}\r\n`;
   if (caption) body += `--${boundary}\r\nContent-Disposition: form-data; name="caption"\r\n\r\n${caption}\r\n`;
   body += `--${boundary}\r\nContent-Disposition: form-data; name="photo"; filename="${filename}"\r\nContent-Type: ${mime}\r\n\r\n`;
   const tail = `\r\n--${boundary}--\r\n`;
@@ -837,7 +840,7 @@ async function sendTelegramPhoto(imagePath, caption, _retryCount = 0) {
           if (parsed.ok) return resolve(true);
           if (parsed.error_code === 429 && _retryCount < 3) {
             const wait = ((parsed.parameters && parsed.parameters.retry_after) || 5) * 1000;
-            setTimeout(() => sendTelegramPhoto(imagePath, caption, _retryCount + 1).then(resolve), wait);
+            setTimeout(() => sendTelegramPhoto(imagePath, caption, { ...opts, retryCount: _retryCount + 1 }).then(resolve), wait);
             return;
           }
           resolve(false);

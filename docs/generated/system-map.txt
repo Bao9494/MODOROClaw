@@ -1,14 +1,15 @@
 9BizClaw Generated System Map
 
 Counts
-- apiRoutes: 83
+- apiRoutes: 87
 - ipcHandlers: 233
 - preloadBridges: 226
 - dashboardPages: 21
-- capabilityContracts: 2
+- capabilityContracts: 3
 
 Capability Contracts
 - brand-image: Generate brand-aware images with uploaded assets (capabilities/brand-image.contract.json)
+- telegram-cron: Create scheduled Telegram messages with layered chat memory (capabilities/telegram-cron.contract.json)
 - zalo-cron: Create scheduled Zalo group messages or agent jobs (capabilities/zalo-cron.contract.json)
 
 API Routes
@@ -78,6 +79,10 @@ API Routes
 - /api/skill/python-status [local-api]
 - /api/skill/test-exec [local-api]
 - /api/system/info [local-api]
+- /api/telegram/conversations [local-api]
+- /api/telegram/profile [local-api]
+- /api/telegram/seed [local-api]
+- /api/telegram/send [local-api]
 - /api/telegram/send-photo [local-api]
 - /api/user-skills/check-conflict [local-api]
 - /api/user-skills/create [local-api]
@@ -123,20 +128,20 @@ Large Source Files
 - electron/ui/dashboard.html: 783151 bytes
 - electron/lib/dashboard-ipc.js: 319381 bytes
 - electron/lib/license.js: 187389 bytes
-- electron/lib/cron-api.js: 168802 bytes
-- electron/lib/cron.js: 131438 bytes
+- electron/lib/cron-api.js: 182689 bytes
+- electron/lib/cron.js: 133310 bytes
 - electron/ui/wizard.html: 117791 bytes
 - electron/lib/knowledge.js: 96863 bytes
-- electron/lib/channels.js: 94957 bytes
+- electron/lib/channels.js: 95211 bytes
 - electron/lib/fb-schedule.js: 94418 bytes
-- electron/lib/gateway.js: 84305 bytes
+- electron/lib/gateway.js: 84512 bytes
 - electron/lib/runtime-installer.js: 75692 bytes
+- electron/lib/vendor-patches.js: 74829 bytes
 - electron/ui/preview-telegram-redesign.html: 66621 bytes
 - electron/lib/workspace.js: 65863 bytes
 - electron/lib/google-api.js: 65108 bytes
-- electron/lib/config.js: 61589 bytes
+- electron/lib/config.js: 61710 bytes
 - electron/lib/fb-publisher.js: 57530 bytes
-- electron/lib/vendor-patches.js: 50077 bytes
-- electron/lib/nine-router.js: 47402 bytes
+- electron/lib/nine-router.js: 52447 bytes
 - electron/lib/google-routes.js: 45145 bytes
 - electron/lib/skill-manager.js: 45003 bytes

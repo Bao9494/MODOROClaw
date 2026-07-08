@@ -22,7 +22,7 @@ function baseConfig(model = { id: 'main', name: 'Main Combo' }) {
     models: {
       providers: {
         ninerouter: {
-          models: [model, { id: 'zalo', name: 'Zalo Combo (gpt-5.2)' }],
+          models: [model, { id: 'zalo', name: 'Zalo Combo (gpt-5.4)' }],
         },
       },
     },

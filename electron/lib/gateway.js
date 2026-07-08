@@ -12,12 +12,13 @@ const {
 } = require('./workspace');
 const {
   getBundledVendorDir, findNodeBin, findOpenClawBin,
-  findOpenClawCliJs,
+  findOpenClawCliJs, spawnOpenClawSafe,
 } = require('./boot');
 const { ensureDefaultConfig, ensureZaloModelDefault } = require('./config');
 const {
   broadcastChannelStatusOnce, sendCeoAlert, sendTelegram,
   findOpenzcaListenerPid, registerTelegramCommands, resetGatewayZaloDiag,
+  getTelegramConfigWithRecovery,
 } = require('./channels');
 const { start9Router, stop9Router, getRouterProcess, ensure9RouterApiKeySync, ensure9RouterZaloCombo } = require('./nine-router');
 const {
@@ -164,6 +165,7 @@ function ensureOpenclawPrewarmFix() { vendorPatches.ensureOpenclawPrewarmFix(get
 function ensureOpenclawUpdateUiDisabled() { vendorPatches.ensureOpenclawUpdateUiDisabled(getBundledVendorDir(), ctx.HOME); }
 function ensureAuthCacheTtlExtension() { vendorPatches.ensureAuthCacheTtlExtension(getBundledVendorDir()); }
 function ensureSessionFreezePatches() { vendorPatches.ensureSessionFreezePatches(getBundledVendorDir()); }
+function ensureOpenclawLatencyPatches() { vendorPatches.ensureOpenclawLatencyPatches(getBundledVendorDir(), ctx.HOME); }
 
 // ============================================
 //  IPC DRAIN + BOOT GUARD
@@ -331,6 +333,7 @@ async function _startOpenClawImpl(opts = {}) {
     ensureVisionCatalogFix,
     ensureVisionSerializationFix,
     ensureWebFetchLocalhostFix,
+    ensureOpenclawLatencyPatches,
   ];
   for (const fn of _patchFns) {
     try { fn(); } catch (e) { console.error(`[boot] ${fn.name} threw:`, e?.message); }

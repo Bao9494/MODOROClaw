@@ -16,6 +16,7 @@ leaveManager.init({ getWorkspace });
 const inventoryManager = require('./inventory-manager');
 inventoryManager.init({ getWorkspace });
 const { buildTelegramTargetFromContext } = require('./telegram-routing');
+const telegramMemory = require('./telegram-memory');
 
 let shell;
 try { shell = require('electron').shell; } catch {}
@@ -141,6 +142,135 @@ function resolveZaloIsGroup({ groupId, groupName, friendName, isGroupParam }) {
   if (isGroupParam === true || isGroupParam === 'true') return true;
   if (isGroupParam === false || isGroupParam === 'false') return false;
   return false;
+}
+
+function boolParam(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  const s = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'y', 'on', 'bat', 'bật'].includes(s)) return true;
+  if (['0', 'false', 'no', 'n', 'off', 'tat', 'tắt'].includes(s)) return false;
+  return fallback;
+}
+
+function optionalBoolParam(value) {
+  if (value === undefined || value === null || value === '') return null;
+  return boolParam(value, false);
+}
+
+function resolveTelegramTargetFromParams(params = {}, opts = {}) {
+  const directId = telegramMemory.sanitizeTelegramChatId(
+    params.targetChatId
+    || params.telegramChatId
+    || params.chatId
+    || params.id
+  );
+  if (directId) return { targetChatId: directId, matchedBy: 'id' };
+
+  const query = String(
+    params.name
+    || params.q
+    || params.query
+    || params.chatName
+    || params.groupName
+    || params.title
+    || ''
+  ).trim();
+  if (!query) return { error: 'targetChatId/chatId/name/q required', status: 400 };
+
+  const requireEnabled = opts.requireEnabled !== false;
+  const lookup = telegramMemory.findTelegramConversations({
+    query,
+    role: params.role || '',
+    chatType: params.chatType || params.type || '',
+    enabled: requireEnabled ? true : optionalBoolParam(params.enabled),
+    autoMode: true,
+    limit: Math.min(Math.max(parseInt(params.limit, 10) || 10, 1), 50),
+  });
+  if (!lookup.count || !lookup.picked) {
+    return {
+      error: 'No Telegram conversation found matching "' + query + '". Run /api/telegram/seed or check Dashboard > Telegram.',
+      status: 404,
+      lookup,
+    };
+  }
+
+  const autoMode = boolParam(params.autoMode || params.auto_mode, false);
+  const picked = lookup.pickedConversation || lookup.conversations[0];
+  const second = lookup.conversations[1] || null;
+  const closeSecond = second && Number(second.score || 0) >= Math.max(10, Number(picked.score || 0) - 15);
+  if (!autoMode && !opts.allowAmbiguous && lookup.count > 1 && closeSecond && Number(picked.score || 0) < 100) {
+    return {
+      error: 'Multiple Telegram conversations match "' + query + '". Pass targetChatId or autoMode=1.',
+      status: 409,
+      lookup,
+      pickedConversation: picked,
+    };
+  }
+
+  return {
+    targetChatId: lookup.picked,
+    conversation: picked,
+    lookup,
+    matchedBy: 'name',
+  };
+}
+
+function hasTelegramTargetHintForCron(params = {}) {
+  const channel = String(params.channel || params.targetChannel || params.platform || '').trim().toLowerCase();
+  return channel === 'telegram'
+    || !!(params.telegramTargetChatId || params.targetChatId || params.telegramChatId)
+    || !!(params.telegramName || params.telegramChatName || params.telegramGroupName || params.telegramTargetName);
+}
+
+function scopedTelegramCronParams(params = {}) {
+  const channel = String(params.channel || params.targetChannel || params.platform || '').trim().toLowerCase();
+  return {
+    targetChatId: params.telegramTargetChatId || params.targetChatId || '',
+    telegramChatId: params.telegramChatId || '',
+    name: params.telegramName
+      || params.telegramChatName
+      || params.telegramGroupName
+      || params.telegramTargetName
+      || (channel === 'telegram' ? (params.groupName || params.chatName || params.name || params.q || params.query || '') : ''),
+    role: params.telegramRole || params.role || '',
+    chatType: params.telegramChatType || params.chatType || params.type || '',
+    autoMode: params.autoMode || params.auto_mode,
+    limit: params.limit,
+  };
+}
+
+function telegramTargetId(target) {
+  if (!target || typeof target !== 'object') return '';
+  return telegramMemory.sanitizeTelegramChatId(target.explicitTarget || target.replyChatId || target.originChatId);
+}
+
+function resolveOptionalTelegramTargetForCron(params = {}, headers = {}) {
+  const contextTarget = buildTelegramTargetFromContext(params, headers);
+  if (!hasTelegramTargetHintForCron(params)) return { target: contextTarget, resolved: null };
+
+  const scoped = scopedTelegramCronParams(params);
+  if (!(scoped.targetChatId || scoped.telegramChatId || scoped.name) && contextTarget) {
+    return { target: contextTarget, resolved: null };
+  }
+
+  const resolved = resolveTelegramTargetFromParams(scoped, {
+    requireEnabled: true,
+    allowAmbiguous: false,
+  });
+  if (resolved.error) return resolved;
+
+  const conversation = resolved.conversation || {};
+  const target = {
+    ...(contextTarget || {}),
+    originChannel: 'telegram',
+    replyMode: 'explicit_target',
+    replyChatId: resolved.targetChatId,
+    explicitTarget: resolved.targetChatId,
+  };
+  if (!target.originChatId) target.originChatId = resolved.targetChatId;
+  if (!target.originChatType && conversation.chatType) target.originChatType = conversation.chatType;
+  return { target, resolved };
 }
 
 function startCronApi() {
@@ -442,9 +572,10 @@ function startCronApi() {
         const raw = req.url;
         const stopKeys = [
           'token', 'groupId', 'targetId', 'groupName', 'friendName', 'mediaId', 'imagePath',
+          'chatId', 'targetChatId', 'telegramChatId', 'chatName', 'q', 'name', 'role', 'chatType',
           'filePath', 'isGroup', 'label', 'cronExpr', 'oneTimeAt', 'mode', 'approvalNonce',
           'preview', 'dryRun', 'type', 'visibility', 'audience', 'limit', 'max',
-          'caption', 'allowInternalGenerated', 'allowInternal',
+          'caption', 'enabled', 'autoMode', 'allowInternalGenerated', 'allowInternal',
         ];
         for (const key of ['content', 'message', 'text', 'prompt']) {
           const marker = key + '=';
@@ -586,8 +717,10 @@ function startCronApi() {
         // prevent prompt leakage and enable server-side async delivery.)
       }
 
+      const telegramResolution = resolveOptionalTelegramTargetForCron(spec, {});
+      if (telegramResolution.error) return { error: 'create entry #' + (index + 1) + ': ' + telegramResolution.error };
       const entry = { id, label, prompt: finalPrompt, mode: 'agent', enabled: true, createdAt: new Date().toISOString() };
-      const telegramTarget = buildTelegramTargetFromContext(spec) || defaultTelegramTarget;
+      const telegramTarget = telegramResolution.target || defaultTelegramTarget;
       if (telegramTarget) entry.telegramTarget = telegramTarget;
       if (delivery?.type === 'group') entry.groupId = delivery.ids[0];
       if (delivery?.type === 'user') {
@@ -607,6 +740,23 @@ function startCronApi() {
     const content = spec.content;
     if (!content) return { error: 'create entry #' + (index + 1) + ': content required' };
     if (String(content).length > 500) return { error: 'create entry #' + (index + 1) + ': content too long (max 500 chars)' };
+    const telegramResolution = resolveOptionalTelegramTargetForCron(spec, {});
+    if (telegramResolution.error) return { error: 'create entry #' + (index + 1) + ': ' + telegramResolution.error };
+    const telegramTarget = telegramResolution.target || defaultTelegramTarget;
+    const telegramChatId = telegramTargetId(telegramTarget);
+    if (telegramChatId && !(spec.groupId || spec.groupIds || spec.groupName || spec.targetId || spec.friendName)) {
+      const entry = {
+        id,
+        label,
+        prompt: 'exec: telegram msg send ' + telegramChatId + ' "' + escapeCronSendText(content) + '"',
+        enabled: true,
+        createdAt: new Date().toISOString(),
+        telegramTarget,
+      };
+      if (schedule.cronExpr) entry.cronExpr = schedule.cronExpr;
+      else entry.oneTimeAt = schedule.oneTimeAt;
+      return { entry, delivery: null, telegramDelivery: { id: telegramChatId, label: telegramResolution.resolved?.conversation?.label || telegramChatId } };
+    }
     const delivery = resolveCronZaloTarget({
       groupId: spec.groupId,
       groupIds: spec.groupIds,
@@ -1010,8 +1160,11 @@ function startCronApi() {
         const delivery = resolveCronZaloTarget({ groupId, groupIds, groupName, targetId: rawTargetId, friendName, isGroup }, { allowMultipleGroups: false });
         if (delivery?.error) return jsonResp(res, 400, { error: delivery.error });
 
+        const telegramResolution = resolveOptionalTelegramTargetForCron(params, req.headers);
+        if (telegramResolution.error) return jsonResp(res, telegramResolution.status || 400, telegramResolution);
+
         const id = 'cron_' + Date.now() + '_' + crypto.randomBytes(3).toString('hex');
-        const telegramTarget = buildTelegramTargetFromContext(params, req.headers);
+        const telegramTarget = telegramResolution.target;
         const entry = {
           id,
           label: label || ('Agent cron ' + new Date().toISOString().slice(0, 16)),
@@ -1038,11 +1191,11 @@ function startCronApi() {
             const crons = loadCustomCrons();
             if (crons.length >= 20) return jsonResp(res, 400, { error: 'too many crons (max 20). Delete some first.' });
             const entrySchedKey = entry.cronExpr || entry.oneTimeAt || '';
-            const entryTarget = entry.zaloTarget?.id || entry.groupId || '';
+            const entryTarget = entry.zaloTarget?.id || entry.groupId || telegramTargetId(entry.telegramTarget) || '';
             if (entrySchedKey && entryTarget) {
               const dup = crons.find(c => c && c.enabled !== false &&
                 (c.cronExpr || c.oneTimeAt || '').replace(/\s+/g, ' ') === entrySchedKey.replace(/\s+/g, ' ') &&
-                (c.zaloTarget?.id || c.groupId || '') === entryTarget);
+                (c.zaloTarget?.id || c.groupId || telegramTargetId(c.telegramTarget) || '') === entryTarget);
               if (dup) {
                 return jsonResp(res, 409, { error: `duplicate: existing cron "${dup.label || dup.id}" already has same schedule+target`, existingId: dup.id });
               }
@@ -1055,7 +1208,9 @@ function startCronApi() {
             // the id bot actually picked from groups.json).
             const targetLabel = delivery
               ? ' — ' + delivery.type + ': ' + delivery.labels.map((n, i) => `${n} (…${String(delivery.ids[i]).slice(-4)})`).join(', ')
-              : '';
+              : telegramResolution.resolved
+                ? ' — telegram: ' + (telegramResolution.resolved.conversation?.label || telegramResolution.resolved.targetChatId) + ' (…' + String(telegramResolution.resolved.targetChatId).slice(-4) + ')'
+                : '';
             console.log('[cron-api] created agent cron:', id, label || '', targetLabel);
             try {
               sendCeoAlert('[Cron] Đã tạo (agent): ' + (label || 'no label') + ' — ' + (cronExpr || oneTimeAt) + targetLabel);
@@ -1068,6 +1223,59 @@ function startCronApi() {
       // Default mode: group message send via openzca
       if (!content) return jsonResp(res, 400, { error: 'content required' });
       if (String(content).length > 500) return jsonResp(res, 400, { error: 'content too long (max 500 chars)' });
+      const fixedTelegramResolution = resolveOptionalTelegramTargetForCron(params, req.headers);
+      if (fixedTelegramResolution.error) return jsonResp(res, fixedTelegramResolution.status || 400, fixedTelegramResolution);
+      const fixedTelegramChatId = telegramTargetId(fixedTelegramResolution.target);
+      if (fixedTelegramChatId) {
+        if (cronExpr) {
+          const normalized = String(cronExpr).trim().replace(/\s+/g, ' ');
+          if (!nodeCron.validate(normalized)) return jsonResp(res, 400, { error: 'invalid cronExpr: ' + cronExpr });
+          const parts = normalized.split(' ');
+          const minField = parts[0] || '';
+          const stepMatch = minField.match(/^\*\/(\d+)$/);
+          if (minField === '*' || (stepMatch && parseInt(stepMatch[1], 10) < 5)) {
+            return jsonResp(res, 400, { error: 'frequency too high — minimum 5 minutes (use */5 or wider). Every-minute crons will spam groups.' });
+          }
+        }
+        if (oneTimeAt) {
+          const d = new Date(oneTimeAt);
+          if (isNaN(d.getTime())) return jsonResp(res, 400, { error: 'invalid oneTimeAt (expected YYYY-MM-DDTHH:MM:SS): ' + oneTimeAt });
+          if (d.getTime() < Date.now() - 60000) return jsonResp(res, 400, { error: 'oneTimeAt is in the past: ' + oneTimeAt });
+        }
+        if (!cronExpr && !oneTimeAt) return jsonResp(res, 400, { error: 'cronExpr or oneTimeAt required' });
+        const id = 'cron_' + Date.now() + '_' + crypto.randomBytes(3).toString('hex');
+        const entry = {
+          id,
+          label: label || ('Telegram cron ' + new Date().toISOString().slice(0, 16)),
+          prompt: 'exec: telegram msg send ' + fixedTelegramChatId + ' "' + escapeCronSendText(content) + '"',
+          enabled: true,
+          createdAt: new Date().toISOString(),
+          telegramTarget: fixedTelegramResolution.target,
+        };
+        if (cronExpr) entry.cronExpr = String(cronExpr).trim().replace(/\s+/g, ' ');
+        else entry.oneTimeAt = oneTimeAt;
+        try {
+          return await withWriteLock(async () => {
+            const crons = loadCustomCrons();
+            if (crons.length >= 20) return jsonResp(res, 400, { error: 'too many crons (max 20). Delete some first.' });
+            const entrySchedKey = entry.cronExpr || entry.oneTimeAt || '';
+            const dup = entrySchedKey && crons.find(c => c && c.enabled !== false &&
+              (c.cronExpr || c.oneTimeAt || '').replace(/\s+/g, ' ') === entrySchedKey.replace(/\s+/g, ' ') &&
+              telegramTargetId(c.telegramTarget) === fixedTelegramChatId);
+            if (dup) {
+              return jsonResp(res, 409, { error: `duplicate: existing cron "${dup.label || dup.id}" already has same schedule+Telegram target`, existingId: dup.id });
+            }
+            crons.push(entry);
+            writeJsonAtomic(getCustomCronsPath(), crons);
+            try { restartCronJobs(); } catch {}
+            const tgLabel = fixedTelegramResolution.resolved?.conversation?.label || fixedTelegramChatId;
+            try {
+              sendCeoAlert('[Cron] Đã tạo Telegram: ' + (label || 'no label') + ' — ' + (cronExpr || oneTimeAt) + ' — ' + tgLabel + ' (…' + String(fixedTelegramChatId).slice(-4) + ')');
+            } catch {}
+            return jsonResp(res, 200, { success: true, id, entry });
+          });
+        } catch (e) { return jsonResp(res, 500, { error: e.message }); }
+      }
       const targets = groupIds ? String(groupIds).split(',').map(s => s.trim()).filter(Boolean) : (groupId ? [String(groupId).trim()] : []);
       if (targets.length === 0) return jsonResp(res, 400, { error: 'groupId or groupIds required' });
       const { byId, byName, ambiguous } = loadGroupsMap();
@@ -2757,6 +2965,64 @@ function startCronApi() {
       return jsonResp(res, 200, imageGen.getJobStatus(String(jobId)));
 
     // ─── Telegram Photo API ──────────────────────────────────────
+    } else if (urlPath === '/api/telegram/conversations') {
+      try {
+        const result = telegramMemory.findTelegramConversations({
+          query: String(params.name || params.q || params.query || '').trim(),
+          role: params.role || '',
+          chatType: params.chatType || params.type || '',
+          enabled: optionalBoolParam(params.enabled),
+          autoMode: boolParam(params.autoMode || params.auto_mode, false),
+          limit: Math.min(Math.max(parseInt(params.limit, 10) || 50, 1), 200),
+        });
+        return jsonResp(res, 200, result);
+      } catch (e) { return jsonResp(res, 500, { error: e.message }); }
+
+    } else if (urlPath === '/api/telegram/seed') {
+      try {
+        const result = telegramMemory.seedTelegramConversationsFromRuntime();
+        return jsonResp(res, 200, result);
+      } catch (e) { return jsonResp(res, 500, { error: e.message }); }
+
+    } else if (urlPath === '/api/telegram/profile') {
+      try {
+        const resolved = resolveTelegramTargetFromParams(params, { requireEnabled: false, allowAmbiguous: true });
+        if (resolved.error) return jsonResp(res, resolved.status || 400, resolved);
+        const maxChars = Math.min(Math.max(parseInt(params.maxChars || params.max, 10) || 2500, 200), 20000);
+        const profile = telegramMemory.readTelegramConversationProfile(resolved.targetChatId, maxChars);
+        if (!profile) return jsonResp(res, 404, { error: 'Telegram profile not found', targetChatId: resolved.targetChatId });
+        return jsonResp(res, 200, {
+          success: true,
+          targetChatId: resolved.targetChatId,
+          conversation: resolved.conversation || null,
+          profile,
+        });
+      } catch (e) { return jsonResp(res, 500, { error: e.message }); }
+
+    } else if (urlPath === '/api/telegram/send') {
+      const text = String(params.text || params.message || params.content || '').trim();
+      if (!text) return jsonResp(res, 400, { error: 'text required' });
+      if (text.length > 5000) return jsonResp(res, 400, { error: 'text too long (max 5000 chars)' });
+      try {
+        const resolved = resolveTelegramTargetFromParams(params, { requireEnabled: true, allowAmbiguous: false });
+        if (resolved.error) return jsonResp(res, resolved.status || 400, resolved);
+        const ok = await sendTelegram(text, {
+          targetChatId: resolved.targetChatId,
+          skipPauseCheck: boolParam(params.skipPauseCheck || params.force, false),
+        });
+        auditLog('telegram_send_api', {
+          targetChatId: resolved.targetChatId,
+          matchedBy: resolved.matchedBy,
+          label: resolved.conversation?.label || '',
+          ok: !!ok,
+        });
+        return jsonResp(res, ok ? 200 : 500, {
+          success: !!ok,
+          targetChatId: resolved.targetChatId,
+          conversation: resolved.conversation || null,
+        });
+      } catch (e) { return jsonResp(res, 500, { error: e.message }); }
+
     } else if (urlPath === '/api/telegram/send-photo') {
       const { imagePath: relPath, caption } = params;
       if (!relPath) return jsonResp(res, 400, { error: 'imagePath required' });
@@ -2765,8 +3031,22 @@ function startCronApi() {
       if (!absPath.startsWith(ws + path.sep)) return jsonResp(res, 400, { error: 'invalid path' });
       if (!fs.existsSync(absPath)) return jsonResp(res, 400, { error: 'file not found' });
       try {
-        const ok = await sendTelegramPhoto(absPath, caption || '');
-        return jsonResp(res, ok ? 200 : 500, { success: ok });
+        let resolved = null;
+        const hasTargetHint = params.targetChatId || params.telegramChatId || params.chatId || params.id
+          || params.name || params.q || params.query || params.chatName || params.groupName || params.title;
+        if (hasTargetHint) {
+          resolved = resolveTelegramTargetFromParams(params, { requireEnabled: true, allowAmbiguous: false });
+          if (resolved.error) return jsonResp(res, resolved.status || 400, resolved);
+        }
+        const ok = await sendTelegramPhoto(absPath, caption || '', {
+          targetChatId: resolved?.targetChatId || null,
+          skipPauseCheck: boolParam(params.skipPauseCheck || params.force, false),
+        });
+        return jsonResp(res, ok ? 200 : 500, {
+          success: ok,
+          targetChatId: resolved?.targetChatId || null,
+          conversation: resolved?.conversation || null,
+        });
       } catch (e) { return jsonResp(res, 500, { error: e.message }); }
     } else if (urlPath === '/api/zalo/ready') {
       try {

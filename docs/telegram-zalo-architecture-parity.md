@@ -1,6 +1,7 @@
 # Đối chiếu kiến trúc Zalo sang Telegram
 
 Ngày rà: 2026-07-01
+Cập nhật: 2026-07-08 — Telegram được nâng lên kênh ưu tiên, thêm API lookup/send/profile/seed, cron Telegram safe exec và appointment target theo `targetChatId`.
 
 ## Phạm vi
 
@@ -49,6 +50,10 @@ Kết luận: hiệu quả chính đến từ việc filter trước khi scoring
 | Lưu delivery target theo job | `cron-api.js` lưu `telegramTarget` vào custom cron | Đã thêm |
 | Resolver khi cron fire | `cron.js` ưu tiên `explicitTarget` → `replyChatId` → `originChatId` | Đã thêm |
 | Outbound gửi đúng target | `channels.js` cho `sendTelegram(text, { targetChatId })` | Đã thêm |
+| Lookup chat/group theo tên | `/api/telegram/conversations?name=...&autoMode=1` dùng `findTelegramConversations()` | Đã thêm |
+| API gửi Telegram theo tên/ID | `/api/telegram/send`, `/api/telegram/send-photo`, `/api/telegram/profile`, `/api/telegram/seed` | Đã thêm |
+| Cron fixed Telegram không qua LLM | `cron-api.js` tạo `exec: telegram msg send <chatId> "<text>"`; `cron.js` chạy safe exec | Đã thêm |
+| Appointment push target Telegram | `appointments.js` dùng `pushTargets[].toId` làm `targetChatId` | Đã thêm |
 | Memory injection khi cron Telegram chạy | `cron.js` nạp `<telegram-conversation-context>` nếu job có `telegramTarget` | Đã thêm |
 | UI quản lý conversation | Tab Telegram có danh sách chat/group, bộ lọc CEO/nội bộ/khách, nút xem hồ sơ, role select và bật/tắt conversation | Đã thêm |
 | Seed danh sách conversation | `telegram-memory.js` đọc `openclaw.json`, `custom-crons.json`, log/cache Telegram và profile đã có để seed `memory/telegram-chats/<chatId>.md` | Đã thêm nền tảng |
@@ -81,6 +86,13 @@ Telegram đã được mô phỏng theo Zalo ở ba lớp:
 2. Lớp memory/audience nền tảng: conversation profile, role, scope hints, actor-scoped memory retrieval, prompt context block.
 3. Lớp quản trị Dashboard: danh sách Telegram conversations, role CEO/nội bộ/khách, xem hồ sơ riêng và seed hồ sơ từ dữ liệu runtime đang có.
 
+Từ bản cập nhật 2026-07-08, Telegram còn có thêm lớp điều phối API giống Zalo:
+
+1. BOT tra `targetChatId` bằng tên chat/group trước khi gửi.
+2. BOT gửi Telegram theo `targetChatId` thay vì rơi sang cache Zalo.
+3. Cron/nhắc lịch Telegram có thể lưu target rõ ràng và dùng safe exec, không cần gọi LLM chỉ để gửi một câu.
+4. Appointment push target Telegram dùng `toId` đúng nghĩa là `targetChatId`.
+
 Lỗi gốc “cron tạo từ Telegram group nhưng kết quả quay về CEO DM/sticky chat” được xử lý bằng cách biến chat context thành dữ liệu của job, thay vì để runtime đoán lại bằng `allowFrom[0]` hoặc sticky chat.
 
 Kiến trúc memory phân tầng của Zalo thật sự tối ưu ở 4 điểm:
@@ -106,5 +118,10 @@ Kiến trúc memory phân tầng của Zalo thật sự tối ưu ở 4 điểm:
 - `node electron/scripts/check-api-doc-drift.js`
 - `node electron/scripts/generate-system-map.js --check`
 - `node electron/scripts/check-telegram-memory-contract.js`
+- `node --check electron/lib/channels.js`
+- `node --check electron/lib/appointments.js`
+- Sandbox local: `npm.cmd run smoke` PASS
+- Sandbox local: unsigned Windows installer build PASS
+- Artifact: `O:\project\9bizclaw\artifacts\9BizClaw Setup 2.4.23-telegram-parity-unsigned-20260708.exe`
 
-Full `node electron/scripts/smoke-test.js` đã chạy tới cuối phần static; các check Telegram routing đều pass. Build smoke còn bị chặn bởi dependency chưa có trong clone source (`node-cron`, `xlsx`, `electron`).
+Ghi chú: smoke trong source worktree trên ổ `O:` còn đỏ nếu `electron/vendor` chưa extract đủ `9router`/`modoro-zalo`; sandbox local đã có vendor bundle đầy đủ nên dùng để xác nhận build/package.

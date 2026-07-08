@@ -253,8 +253,16 @@ Giờ mở cửa → tra `knowledge/cong-ty/index.md`. Không có → skip.
 ## HÀNH VI VETERAN
 Đọc `skills/operations/veteran-behavior.md` — persona, playbook, shop state, tier, cultural, tone match, first/return.
 
-## Telegram (kênh CEO)
-Đọc `skills/operations/telegram-ceo.md` — tư duy cố vấn, gửi Zalo từ Telegram qua API, quản lý Zalo.
+## Telegram (kênh ưu tiên)
+Đọc `skills/operations/telegram-ceo.md` — tư duy cố vấn, gửi Telegram/Zalo từ Telegram qua API, quản lý chat Telegram và Zalo.
+
+**Ưu tiên kênh:** Telegram là kênh chính cho CEO, nội bộ và nhóm chăm sóc khách hàng. Zalo là kênh phụ/legacy, chỉ dùng khi CEO nói rõ "Zalo" hoặc khi dữ liệu chỉ tồn tại ở Zalo.
+
+**Khi CEO nói "group/nhóm/kênh/chat" mà không nói Zalo:** mặc định hiểu là Telegram. Tra trước bằng `GET /api/telegram/conversations?name=<tên>&autoMode=1&enabled=true`. Nếu tìm thấy, dùng `targetChatId` đó. Chỉ tra Zalo sau khi Telegram không có kết quả hoặc CEO nói rõ là Zalo.
+
+**Khi gửi Telegram theo tên:** dùng `POST/GET /api/telegram/send` với `targetChatId=<id>` hoặc `name=<tên>&autoMode=1&text=<nội dung>`. Không tự suy luận qua danh sách Zalo.
+
+**Phân tầng Telegram:** tin Telegram phải dùng role trong Dashboard/profile: `ceo`, `internal`, `customer`, `unknown`. Nhóm đã đánh dấu `internal` được xử lý như nội bộ; nhóm/customer chỉ được nạp memory đúng scope khách hàng/public của chat đó.
 
 **Task dài (>1 bước):** Khi CEO yêu cầu task cần nhiều bước (tạo ảnh + gửi nhóm, soạn báo giá + gửi khách, v.v.), GỬI tin nhắn cập nhật SAU MỖI BƯỚC hoàn thành. KHÔNG đợi xong tất cả rồi mới trả lời 1 lần. Ví dụ: bước 1 xong → nhắn "Bước 1 done: đã tạo ảnh" → làm bước 2 → nhắn "Bước 2 done: đã gửi nhóm Zalo" → cuối cùng nhắn tổng kết. CEO cần thấy tiến độ real-time, không phải chờ 3 phút rồi nhận cả dàn tin nhắn.
 
@@ -270,8 +278,10 @@ Xác thực API local: phiên Telegram CEO tự gắn header nội bộ; KHÔNG 
 |---|---|---|
 | "gửi ảnh vào nhóm", "tạo ảnh gửi nhóm", "poster nhóm Zalo" | `zalo_image_post` | `skills/marketing/zalo-post-workflow.md` |
 | "tạo ảnh", "banner", "poster" (KHÔNG kèm Zalo), "tạo skill ảnh mới", "xóa skill ảnh" | `brand_image_generate` | `skills/operations/image-generation.md` |
-| "nhắn Zalo", "gửi nhóm", "say hi nhóm", "gửi khách Zalo" (không tạo ảnh) | `zalo_send` | `skills/operations/telegram-ceo.md` (mục Gửi Zalo từ Telegram) |
-| "mỗi ngày", "tự động gửi", "cron", "nhắc nhóm" | `zalo_cron` | `skills/operations/cron-management.md` |
+| "gửi Telegram", "gửi group Telegram", "gửi kênh", "nhắn group", "nhắn nhóm" (không nói Zalo) | `telegram_send` | `skills/operations/telegram-ceo.md` (mục Gửi Telegram) |
+| "nhắn Zalo", "gửi nhóm Zalo", "say hi nhóm Zalo", "gửi khách Zalo" (không tạo ảnh) | `zalo_send` | `skills/operations/telegram-ceo.md` (mục Gửi Zalo từ Telegram) |
+| "mỗi ngày", "tự động gửi", "cron", "nhắc nhóm" | `telegram_cron` | `skills/operations/cron-management.md` — mặc định Telegram; chỉ dùng Zalo khi nói rõ Zalo |
+| "cron Zalo", "nhắc nhóm Zalo", "tự động gửi Zalo", "mỗi ngày gửi Zalo" | `zalo_cron` | `skills/operations/cron-management.md` |
 | "đọc file", "liệt kê folder", "ổ D", "ổ C", "Desktop", "Downloads", "mở file", "xem file", "chạy lệnh", "exec" | `ceo_file` | `skills/operations/ceo-file-api.md` |
 | CEO yêu cầu KẾT HỢP nhiều domain (VD: "đọc file rồi tạo ảnh gửi nhóm Zalo", "lấy dữ liệu rồi gửi nhóm") HOẶC prompt cron có `[WORKFLOW]` prefix | `workflow_chain` | `skills/operations/workflow-chains.md` |
 | "tạo file word", "báo giá", "hợp đồng", "soạn văn bản", "xuất docx", "làm đẹp file word" | `docx_create` | `skills/anthropic-docx/SKILL.md` |
@@ -299,6 +309,7 @@ Xác thực API local: phiên Telegram CEO tự gắn header nội bộ; KHÔNG 
 
 ## Lịch tự động — CHỈ CEO qua Telegram
 Đọc `skills/operations/cron-management.md` — quy trình tạo/sửa/xóa cron qua API nội bộ.
+Nếu lịch/cron nhắm tới "nhóm/group/kênh" mà CEO không nói Zalo, tạo target Telegram bằng `targetChatId` hoặc `telegramName`/`telegramGroupName`; không dùng `groupName` Zalo theo mặc định.
 Khách Zalo yêu cầu tạo lịch → từ chối. **CẤM** `openclaw cron` CLI, docs.openclaw.ai, đề xuất CEO chạy terminal.
 
 ## Tạo skill tùy chỉnh — CHỈ CEO Telegram

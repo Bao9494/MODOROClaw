@@ -1,11 +1,11 @@
 {
   "generatedBy": "electron/scripts/generate-system-map.js",
   "counts": {
-    "apiRoutes": 83,
+    "apiRoutes": 87,
     "ipcHandlers": 233,
     "preloadBridges": 226,
     "dashboardPages": 21,
-    "capabilityContracts": 2
+    "capabilityContracts": 3
   },
   "apiRoutes": [
     {
@@ -595,6 +595,42 @@
     },
     {
       "path": "/api/system/info",
+      "sources": [
+        "electron/lib/cron-api.js"
+      ],
+      "kinds": [
+        "local-api"
+      ]
+    },
+    {
+      "path": "/api/telegram/conversations",
+      "sources": [
+        "electron/lib/cron-api.js"
+      ],
+      "kinds": [
+        "local-api"
+      ]
+    },
+    {
+      "path": "/api/telegram/profile",
+      "sources": [
+        "electron/lib/cron-api.js"
+      ],
+      "kinds": [
+        "local-api"
+      ]
+    },
+    {
+      "path": "/api/telegram/seed",
+      "sources": [
+        "electron/lib/cron-api.js"
+      ],
+      "kinds": [
+        "local-api"
+      ]
+    },
+    {
+      "path": "/api/telegram/send",
       "sources": [
         "electron/lib/cron-api.js"
       ],
@@ -2915,6 +2951,11 @@
       "source": "capabilities/brand-image.contract.json"
     },
     {
+      "id": "telegram-cron",
+      "title": "Create scheduled Telegram messages with layered chat memory",
+      "source": "capabilities/telegram-cron.contract.json"
+    },
+    {
       "id": "zalo-cron",
       "title": "Create scheduled Zalo group messages or agent jobs",
       "source": "capabilities/zalo-cron.contract.json"
@@ -2935,11 +2976,11 @@
     },
     {
       "path": "electron/lib/cron-api.js",
-      "bytes": 168802
+      "bytes": 182689
     },
     {
       "path": "electron/lib/cron.js",
-      "bytes": 131438
+      "bytes": 133310
     },
     {
       "path": "electron/ui/wizard.html",
@@ -2951,7 +2992,7 @@
     },
     {
       "path": "electron/lib/channels.js",
-      "bytes": 94957
+      "bytes": 95211
     },
     {
       "path": "electron/lib/fb-schedule.js",
@@ -2959,11 +3000,15 @@
     },
     {
       "path": "electron/lib/gateway.js",
-      "bytes": 84305
+      "bytes": 84512
     },
     {
       "path": "electron/lib/runtime-installer.js",
       "bytes": 75692
+    },
+    {
+      "path": "electron/lib/vendor-patches.js",
+      "bytes": 74829
     },
     {
       "path": "electron/ui/preview-telegram-redesign.html",
@@ -2979,19 +3024,15 @@
     },
     {
       "path": "electron/lib/config.js",
-      "bytes": 61589
+      "bytes": 61710
     },
     {
       "path": "electron/lib/fb-publisher.js",
       "bytes": 57530
     },
     {
-      "path": "electron/lib/vendor-patches.js",
-      "bytes": 50077
-    },
-    {
       "path": "electron/lib/nine-router.js",
-      "bytes": 47402
+      "bytes": 52447
     },
     {
       "path": "electron/lib/google-routes.js",
@@ -3038,6 +3079,10 @@
       "bytes": 30749
     },
     {
+      "path": "electron/lib/telegram-memory.js",
+      "bytes": 29212
+    },
+    {
       "path": "electron/ui/brain.js",
       "bytes": 28661
     },
@@ -3052,10 +3097,6 @@
     {
       "path": "electron/lib/sacred-data.js",
       "bytes": 24080
-    },
-    {
-      "path": "electron/lib/telegram-memory.js",
-      "bytes": 23527
     },
     {
       "path": "electron/lib/migration.js",

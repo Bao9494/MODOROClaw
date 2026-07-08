@@ -28,11 +28,18 @@ async function run() {
   try {
     mem.cleanupCeoMemoryTimers?.();
     const cronSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'cron.js'), 'utf-8');
+    const cronApiSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'cron-api.js'), 'utf-8');
+    const channelsSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'channels.js'), 'utf-8');
+    const appointmentsSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'appointments.js'), 'utf-8');
     const workspaceSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'workspace.js'), 'utf-8');
     const memorySrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'ceo-memory.js'), 'utf-8');
+    const telegramMemorySrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'telegram-memory.js'), 'utf-8');
     const dashboardSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'dashboard-ipc.js'), 'utf-8');
     const preloadSrc = fs.readFileSync(path.join(__dirname, '..', 'preload.js'), 'utf-8');
     const uiSrc = fs.readFileSync(path.join(__dirname, '..', 'ui', 'dashboard.html'), 'utf-8');
+    const agentsSrc = fs.readFileSync(path.join(__dirname, '..', '..', 'AGENTS.md'), 'utf-8');
+    const memoryIndexSrc = fs.readFileSync(path.join(__dirname, '..', '..', 'MEMORY.md'), 'utf-8');
+    const telegramSkillSrc = fs.readFileSync(path.join(__dirname, '..', '..', 'skills', 'operations', 'telegram-ceo.md'), 'utf-8');
 
     const group = tg.resolveTelegramConversation({
       telegramChatId: '-1003857797941',
@@ -42,6 +49,12 @@ async function run() {
     assert('telegram group defaults to customer role', group && group.role === 'customer' && group.audience === 'customer', JSON.stringify(group));
     assert('telegram group scopes are customer/public', JSON.stringify(group.scopeHints) === JSON.stringify(['customer', 'public']), JSON.stringify(group?.scopeHints));
     assert('telegram entity id is stable', tg.telegramEntityId('-1003857797941') === 'telegram:-1003857797941');
+    assert('telegram memory discovers OpenClaw session metadata',
+      telegramMemorySrc.includes('collectOpenclawSessionCandidates')
+      && telegramMemorySrc.includes('conversation_label')
+      && telegramMemorySrc.includes('groupId')
+      && telegramMemorySrc.includes('openclaw-sessions'),
+      'missing session metadata collector');
     assert('ceo-memory allows explicit telegram customer scope only via hints', memorySrc.includes("ch === 'telegram' && hints.includes('customer')"), 'missing explicit customer hint gate');
     assert('ceo-memory actor-scopes telegram customer memory', memorySrc.includes("_requiresActorScopedCustomerFilter(channel, allowedScopes)") && memorySrc.includes("'telegram_chat'"), 'missing telegram actor filter');
     assert('cron injects telegram conversation context when target exists', cronSrc.includes("require('./telegram-memory')") && cronSrc.includes('telegramTarget'));
@@ -61,6 +74,48 @@ async function run() {
     });
     const savedRow = (saved.conversations || []).find(c => c.chatId === '-1003857797941');
     assert('telegram conversation settings persist role override', savedRow && savedRow.role === 'internal' && savedRow.audience === 'internal', JSON.stringify(savedRow));
+    const lookup = tg.findTelegramConversations({ query: 'Nhom noi bo Telegram', autoMode: true, enabled: true });
+    assert('telegram conversation lookup resolves target by name', lookup.picked === '-1003857797941' && lookup.pickedConversation?.role === 'internal', JSON.stringify(lookup));
+
+    assert('cron-api exposes Telegram lookup/send/profile/seed routes',
+      cronApiSrc.includes("urlPath === '/api/telegram/conversations'")
+      && cronApiSrc.includes("urlPath === '/api/telegram/send'")
+      && cronApiSrc.includes("urlPath === '/api/telegram/profile'")
+      && cronApiSrc.includes("urlPath === '/api/telegram/seed'"),
+      'missing Telegram API routes');
+    assert('cron-api creates Telegram fixed crons without LLM',
+      cronApiSrc.includes('resolveOptionalTelegramTargetForCron')
+      && cronApiSrc.includes("'exec: telegram msg send '"),
+      'missing Telegram cron target resolver or safe exec prompt');
+    assert('cron safe exec supports Telegram send',
+      cronSrc.includes('parseSafeTelegramMsgSend')
+      && cronSrc.includes('safe-telegram'),
+      'missing safe Telegram exec runner');
+    assert('cron one-time timers are chunked to avoid 32-bit overflow',
+      cronSrc.includes('MAX_ONE_TIME_TIMER_DELAY_MS')
+      && cronSrc.includes('scheduleOneTimeAt')
+      && !cronSrc.includes('}, effectiveDelay);'),
+      'oneTimeAt uses raw setTimeout(effectiveDelay) and may fire immediately for far-future jobs');
+    assert('telegram photo send supports target chat',
+      channelsSrc.includes('async function sendTelegramPhoto(imagePath, caption, optsOrRetry = 0)')
+      && channelsSrc.includes('effectiveChatId')
+      && channelsSrc.includes('targetChatId'),
+      'sendTelegramPhoto missing targetChatId support');
+    assert('appointment Telegram push targets honor toId',
+      appointmentsSrc.includes('sendTelegram(text, { targetChatId: target.toId || null })'),
+      'appointments Telegram target ignores toId');
+    assert('AGENTS defines Telegram priority over Zalo',
+      agentsSrc.includes('Telegram là kênh chính')
+      && agentsSrc.includes('/api/telegram/conversations?name=<tên>&autoMode=1&enabled=true'),
+      'AGENTS missing Telegram-first routing rule');
+    assert('telegram-ceo skill documents Telegram send API',
+      telegramSkillSrc.includes('## GỬI TELEGRAM')
+      && telegramSkillSrc.includes('/api/telegram/send?targetChatId=<id>&text=<nội dung>'),
+      'telegram-ceo skill missing Telegram send workflow');
+    assert('MEMORY index includes Telegram chat profiles',
+      memoryIndexSrc.includes('memory/telegram-chats/<chatId>.md')
+      && memoryIndexSrc.includes('Telegram role là `customer`'),
+      'MEMORY.md missing Telegram profile routing');
 
     let hasUsableSqlite = true;
     try {

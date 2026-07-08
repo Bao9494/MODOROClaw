@@ -31,6 +31,7 @@ const CRON_AGENT_TIMEOUT_MS = 600000;
 const CRON_AGENT_MAX_RETRIES = 3;
 const CRON_TRANSIENT_BACKOFF_BASE_MS = 5000;
 const CRON_DEFAULT_BACKOFF_BASE_MS = 2000;
+const MAX_ONE_TIME_TIMER_DELAY_MS = 24 * 60 * 60 * 1000;
 
 let _agentFlagProfile = null;   // 'full' | 'medium' | 'minimal'
 let _agentCliHealthy = false;
@@ -54,6 +55,34 @@ function journalCronRun(entry) {
   } catch (e) {
     console.error('[cron-journal] write error:', e.message);
   }
+}
+
+function scheduleOneTimeAt(fireAt, onFire) {
+  const fireTs = fireAt.getTime();
+  let stopped = false;
+  let timer = null;
+
+  const arm = () => {
+    if (stopped) return;
+    const remainingMs = fireTs - Date.now();
+    const nextDelay = Math.max(1000, Math.min(remainingMs, MAX_ONE_TIME_TIMER_DELAY_MS));
+    timer = setTimeout(async () => {
+      if (stopped) return;
+      if (fireTs - Date.now() > 1000) {
+        arm();
+        return;
+      }
+      await onFire();
+    }, nextDelay);
+  };
+
+  arm();
+  return {
+    stop: () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    },
+  };
 }
 
 // Wire journalCronRun into config.js so config can call it without circular dep
@@ -456,7 +485,30 @@ function parseSafeOpenzcaMsgSend(shellCmd) {
   return { profile: profile || getZcaProfile(), targetIds, text, isGroup };
 }
 
+function parseSafeTelegramMsgSend(shellCmd) {
+  const tokens = tokenizeShellish(shellCmd);
+  if (!tokens || !tokens.length) return null;
+  let i = 0;
+  const bin = String(tokens[i] || '');
+  if (!/^(?:telegram|tg)$/i.test(bin)) return null;
+  i += 1;
+  if ((tokens[i] || '').toLowerCase() !== 'msg') return null;
+  if ((tokens[i + 1] || '').toLowerCase() !== 'send') return null;
+  const targetChatId = String(tokens[i + 2] || '').trim();
+  const text = tokens[i + 3];
+  if (!/^-?\d{5,32}$/.test(targetChatId) || text == null) return null;
+  const trailing = tokens.slice(i + 4);
+  if (trailing.length > 0) return null;
+  return { targetChatId, text };
+}
+
 async function runSafeExecCommand(shellCmd, { label } = {}) {
+  const tgParsed = parseSafeTelegramMsgSend(shellCmd);
+  if (tgParsed) {
+    console.log(`[cron-exec] "${label || 'cron'}" rerouted to safe Telegram sender`);
+    const ok = await sendTelegram(tgParsed.text, { targetChatId: tgParsed.targetChatId });
+    return !!ok;
+  }
   const parsed = parseSafeOpenzcaMsgSend(shellCmd);
   if (!parsed) return null;
   const { targetIds, text, isGroup, profile } = parsed;
@@ -540,16 +592,17 @@ async function _runCronAgentPromptImpl(prompt, { label, zaloTarget, telegramTarg
     const shellCmd = execMatch[1].trim();
     const safeResult = await runSafeExecCommand(shellCmd, { label: niceLabel });
     if (safeResult !== null) {
+      const safeMode = /^\s*(?:telegram|tg)\b/i.test(shellCmd) ? 'safe-telegram' : 'safe-openzca';
       if (safeResult) {
-        journalCronRun({ phase: 'ok', label: niceLabel, mode: 'safe-openzca' });
+        journalCronRun({ phase: 'ok', label: niceLabel, mode: safeMode });
       } else {
-        journalCronRun({ phase: 'fail', label: niceLabel, mode: 'safe-openzca', err: 'safe-openzca command blocked or failed' });
+        journalCronRun({ phase: 'fail', label: niceLabel, mode: safeMode, err: safeMode + ' command blocked or failed' });
         try { await sendCeoAlert(`*Cron "${niceLabel}" bị chặn vì không an toàn hoặc gửi Zalo thất bại*\n\nLệnh gửi Zalo đã được kéo về đường an toàn và không được phép đi tiếp.`); } catch {}
       }
       return safeResult;
     }
     console.warn(`[cron-exec] "${niceLabel}" BLOCKED — unrecognized exec command: ${shellCmd.slice(0, 120)}`);
-    journalCronRun({ phase: 'fail', label: niceLabel, mode: 'exec-blocked', err: 'only exec: openzca msg send is allowed' });
+    journalCronRun({ phase: 'fail', label: niceLabel, mode: 'exec-blocked', err: 'only exec: openzca msg send or telegram msg send is allowed' });
     try { await sendCeoAlert(`*Cron "${niceLabel}" bị chặn*\n\nChỉ cho phép \`exec: openzca msg send <id> "<text>" --group\`. Lệnh khác không được phép chạy trực tiếp.`); } catch {}
     return false;
   }
@@ -2300,7 +2353,7 @@ function _startCronJobsInner() {
           continue;
         }
         const effectiveDelay = Math.max(delayMs, 1000);
-        const timer = setTimeout(async () => {
+        const job = scheduleOneTimeAt(fireAt, async () => {
           // A-I2 fix 2026-05-15: oneTimeAt previously skipped both _cronInFlight
           // and _cronFireDedup. If restartCronJobs runs while a fire is in-flight
           // (e.g., quick /api/cron/replace), the new schedule could double-fire.
@@ -2326,9 +2379,10 @@ function _startCronJobsInner() {
             global._cronInFlight && global._cronInFlight.delete(niceId);
           }
           try { await _removeCustomCronById(c.id); } catch (re) { console.error(`[cron] remove oneTime ${c.id} failed:`, re?.message); }
-        }, effectiveDelay);
-        cronJobs.push({ id: c.id, job: { stop: () => clearTimeout(timer) } });
-        console.log(`[cron] OneTime scheduled ${c.id}: ${c.oneTimeAt} (in ${Math.round(effectiveDelay / 1000)}s)`);
+        });
+        cronJobs.push({ id: c.id, job });
+        const nextCheck = Math.min(effectiveDelay, MAX_ONE_TIME_TIMER_DELAY_MS);
+        console.log(`[cron] OneTime scheduled ${c.id}: ${c.oneTimeAt} (in ${Math.round(effectiveDelay / 1000)}s, next check ${Math.round(nextCheck / 1000)}s)`);
       } catch (e) {
         surfaceCronConfigError(c, `oneTimeAt setup failed: ${e.message}`);
       }
@@ -2364,7 +2418,7 @@ function _startCronJobsInner() {
           continue;
         }
         const effectiveDelay = Math.max(delayMs, 1000);
-        const timer = setTimeout(async () => {
+        const job = scheduleOneTimeAt(fireAt, async () => {
           // A-I2 fix 2026-05-15 — mirror in-flight guard on the healed branch.
           const niceId = c.id || c.label || 'one-time';
           if (global._cronInFlight && global._cronInFlight.get(niceId)) {
@@ -2388,9 +2442,10 @@ function _startCronJobsInner() {
             global._cronInFlight && global._cronInFlight.delete(niceId);
           }
           try { await _removeCustomCronById(c.id); } catch (re) { console.error(`[cron] remove oneTime ${c.id} failed:`, re?.message); }
-        }, effectiveDelay);
-        cronJobs.push({ id: c.id, job: { stop: () => clearTimeout(timer) } });
-        console.log(`[cron] OneTime (inline-healed) scheduled ${c.id}: ${c.oneTimeAt} (in ${Math.round(effectiveDelay / 1000)}s)`);
+        });
+        cronJobs.push({ id: c.id, job });
+        const nextCheck = Math.min(effectiveDelay, MAX_ONE_TIME_TIMER_DELAY_MS);
+        console.log(`[cron] OneTime (inline-healed) scheduled ${c.id}: ${c.oneTimeAt} (in ${Math.round(effectiveDelay / 1000)}s, next check ${Math.round(nextCheck / 1000)}s)`);
       } catch (e) {
         surfaceCronConfigError(c, `oneTimeAt setup failed: ${e.message}`);
       }

@@ -1,0 +1,86 @@
+{
+  "id": "telegram-cron",
+  "title": "Create scheduled Telegram messages with layered chat memory",
+  "ownerSource": [
+    "electron/lib/cron-api.js",
+    "electron/lib/cron.js",
+    "electron/lib/telegram-memory.js",
+    "AGENTS.md",
+    "skills/operations/telegram-ceo.md"
+  ],
+  "triggerExamples": [
+    "gửi tin vào nhóm Telegram LLK tối nay",
+    "tạo lịch nhắc họp trong group Telegram nội bộ",
+    "tìm nhóm khách hàng trên Telegram rồi lên lịch chăm sóc"
+  ],
+  "allowedChannels": [
+    "telegram-ceo",
+    "dashboard"
+  ],
+  "blockedChannels": [
+    "zalo-customer",
+    "zalo-group",
+    "unknown-public-chat"
+  ],
+  "requiresConfirmation": true,
+  "sideEffects": [
+    "creates-cron",
+    "may-send-telegram-message",
+    "may-read-telegram-profile"
+  ],
+  "tokenSource": "Telegram CEO web_fetch automatically attaches internal bearer auth for localhost API; no model-visible token",
+  "apiCalls": [
+    {
+      "method": "POST",
+      "path": "/api/telegram/conversations",
+      "purpose": "resolve Telegram chat/group by name, role, type, or id before sending"
+    },
+    {
+      "method": "POST",
+      "path": "/api/telegram/seed",
+      "purpose": "seed Telegram conversation profiles from config, sessions, logs, provider cache, and settings"
+    },
+    {
+      "method": "POST",
+      "path": "/api/telegram/profile",
+      "purpose": "read the layered profile/memory file for a Telegram chat"
+    },
+    {
+      "method": "POST",
+      "path": "/api/telegram/send",
+      "purpose": "send a direct Telegram message to the resolved target chat"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cron/list",
+      "purpose": "list existing cron entries before creating or replacing schedules"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cron/create",
+      "purpose": "create fixed-message Telegram cron jobs using safe exec targets"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cron/replace",
+      "purpose": "atomically replace Telegram reminder schedules without losing existing jobs on validation failure"
+    }
+  ],
+  "externalPermissions": [
+    "Telegram provider running",
+    "known Telegram chat id or resolvable chat profile",
+    "CEO confirmation for outbound scheduled messages"
+  ],
+  "successProofs": [
+    "conversation lookup response contains picked or count greater than zero",
+    "profile response contains targetChatId and profile.content",
+    "cron create response contains id and telegramTarget",
+    "safe cron prompt contains exec: telegram msg send <chatId>"
+  ],
+  "negativeTests": [
+    "must reject ambiguous Telegram names without autoMode or targetChatId",
+    "must reject disabled Telegram targets for send/create",
+    "must not route Telegram group requests to Zalo",
+    "must not expose the cron API token in prompts or saved crons"
+  ]
+}

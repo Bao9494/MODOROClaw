@@ -625,6 +625,486 @@ function ensureOpenzcaFriendEventFix(vendorDir, workspaceDir) {
 }
 
 // ---------------------------------------------------------------------------
+// OpenClaw latency patches
+// ---------------------------------------------------------------------------
+
+function ensureExplicitProviderDiscoverySkip(vendorDir, homeDir) {
+  const distDir = _getOpenclawDistDir(vendorDir);
+  if (!distDir) return;
+  const files = fs.readdirSync(distDir).filter(f => f.startsWith('models-config-') && f.endsWith('.js'));
+  const MARKER = '9BizClaw LATENCY EXPLICIT_PROVIDER_SKIP';
+  const ANCHOR =
+    '\tconst explicitProviders = cfg.models?.providers ?? {};\n' +
+    '\treturn mergeProviders({\n' +
+    '\t\timplicit: await (deps?.resolveImplicitProviders ?? resolveImplicitProviders)({';
+  const REPLACEMENT =
+    '\tconst explicitProviders = cfg.models?.providers ?? {};\n' +
+    '\tconst hasExplicitProviders = Object.keys(explicitProviders).length > 0;\n' +
+    '\tif (hasExplicitProviders) {\n' +
+    '\t\treturn mergeProviders({\n' +
+    `\t\t\timplicit: {}, // ${MARKER}\n` +
+    '\t\t\texplicit: explicitProviders\n' +
+    '\t\t});\n' +
+    '\t}\n' +
+    '\treturn mergeProviders({\n' +
+    '\t\timplicit: await (deps?.resolveImplicitProviders ?? resolveImplicitProviders)({';
+  for (const file of files) {
+    const fp = path.join(distDir, file);
+    let src = fs.readFileSync(fp, 'utf-8');
+    if (!src.includes('async function resolveProvidersForModelsJsonWithDeps')) continue;
+    if (src.includes(MARKER) || src.includes('const hasExplicitProviders = Object.keys(explicitProviders).length > 0;')) {
+      console.log('[openclaw-latency] explicit-provider-skip: already patched');
+      return;
+    }
+    if (!src.includes(ANCHOR)) {
+      console.warn('[openclaw-latency] explicit-provider-skip: anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureExplicitProviderDiscoverySkip', `anchor missing in ${file}`);
+      return;
+    }
+    src = src.replace(ANCHOR, REPLACEMENT);
+    fs.writeFileSync(fp, src, 'utf-8');
+    console.log('[openclaw-latency] explicit-provider-skip: applied to ' + file);
+    return;
+  }
+  console.warn('[openclaw-latency] explicit-provider-skip: no models-config file found');
+}
+
+function ensureChatToolLatencyPatch(vendorDir, homeDir) {
+  const distDir = _getOpenclawDistDir(vendorDir);
+  if (!distDir) return;
+  const files = fs.readdirSync(distDir).filter(f => f.startsWith('openclaw-tools-') && f.endsWith('.js'));
+  const MARKER = '9BizClaw LATENCY FAST_CHAT_TOOLS';
+
+  function gateFactory(src, constName, factoryName) {
+    const start = `\tconst ${constName} = ${factoryName}({`;
+    const replacement = `\tconst ${constName} = shouldCreateHeavyTools ? ${factoryName}({`;
+    const startIdx = src.indexOf(start);
+    if (startIdx < 0) return { src, changed: false, missing: `${constName}:${factoryName}:start` };
+    let next = src.slice(0, startIdx) + replacement + src.slice(startIdx + start.length);
+    const closeIdx = next.indexOf('\n\t});', startIdx + replacement.length);
+    if (closeIdx < 0) return { src, changed: false, missing: `${constName}:${factoryName}:end` };
+    next = next.slice(0, closeIdx) + '\n\t}) : null;' + next.slice(closeIdx + '\n\t});'.length);
+    return { src: next, changed: true };
+  }
+
+  for (const file of files) {
+    const fp = path.join(distDir, file);
+    let src = fs.readFileSync(fp, 'utf-8');
+    if (!src.includes('function createOpenClawTools(options)')) continue;
+    if (src.includes(MARKER) || src.includes('heavyChatToolsEnabled')) {
+      console.log('[openclaw-latency] fast-chat-tools: already patched');
+      return;
+    }
+
+    const fnAnchor = 'function createOpenClawTools(options) {\n\tconst resolvedConfig = options?.config ?? openClawToolsDeps.config;';
+    if (!src.includes(fnAnchor)) {
+      console.warn('[openclaw-latency] fast-chat-tools: function anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureChatToolLatencyPatch', `function anchor missing in ${file}`);
+      return;
+    }
+    src = src.replace(fnAnchor,
+      'function createOpenClawTools(options) {\n' +
+      '\tconst __ocToolsDiagT0 = Date.now();\n' +
+      '\tconst __ocToolsDiag = (stage, extra = "") => {\n' +
+      '\t\tif (process.env.OPENCLAW_LATENCY_DIAG !== "1") return;\n' +
+      '\t\ttry {\n' +
+      '\t\t\tconst channel = options?.agentChannel ?? "unknown";\n' +
+      '\t\t\tconst suffix = extra ? ` ${extra}` : "";\n' +
+      '\t\t\tconsole.log(`[openclaw-tools-diag] stage=${stage} elapsedMs=${Date.now() - __ocToolsDiagT0} channel=${channel}${suffix}`);\n' +
+      '\t\t} catch {}\n' +
+      `\t}; // ${MARKER}\n` +
+      '\t__ocToolsDiag("start");\n' +
+      '\tconst resolvedConfig = options?.config ?? openClawToolsDeps.config;'
+    );
+
+    const sandboxAnchor =
+      '\tconst sandbox = options?.sandboxRoot && options?.sandboxFsBridge ? {\n' +
+      '\t\troot: options.sandboxRoot,\n' +
+      '\t\tbridge: options.sandboxFsBridge\n' +
+      '\t} : void 0;\n' +
+      '\tconst imageTool = options?.agentDir?.trim() ? createImageTool({';
+    const sandboxReplacement =
+      '\tconst sandbox = options?.sandboxRoot && options?.sandboxFsBridge ? {\n' +
+      '\t\troot: options.sandboxRoot,\n' +
+      '\t\tbridge: options.sandboxFsBridge\n' +
+      '\t} : void 0;\n' +
+      '\tconst normalizedAgentChannel = typeof options?.agentChannel === "string" ? options.agentChannel.trim().toLowerCase() : "";\n' +
+      '\tconst isLowLatencyChatChannel = ["telegram", "webchat", "zalo", "modoro-zalo", "openzca"].includes(normalizedAgentChannel);\n' +
+      '\tconst heavyChatToolsEnabled = options?.config?.tools?.heavyChatTools === true || options?.config?.tools?.enableHeavyChatTools === true;\n' +
+      '\tconst shouldCreateHeavyTools = !isLowLatencyChatChannel || heavyChatToolsEnabled;\n' +
+      '\t__ocToolsDiag("after-runtime-web-tools");\n' +
+      '\tconst imageTool = shouldCreateHeavyTools && options?.agentDir?.trim() ? createImageTool({';
+    if (!src.includes(sandboxAnchor)) {
+      console.warn('[openclaw-latency] fast-chat-tools: sandbox anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureChatToolLatencyPatch', `sandbox anchor missing in ${file}`);
+      return;
+    }
+    src = src.replace(sandboxAnchor, sandboxReplacement);
+
+    const pdfNeedle = '\tconst pdfTool = options?.agentDir?.trim() ? createPdfTool({';
+    if (src.includes(pdfNeedle)) {
+      src = src.replace(pdfNeedle, '\tconst pdfTool = shouldCreateHeavyTools && options?.agentDir?.trim() ? createPdfTool({');
+    } else {
+      console.warn('[openclaw-latency] fast-chat-tools: pdf anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureChatToolLatencyPatch', `pdf anchor missing in ${file}`);
+      return;
+    }
+
+    for (const [constName, factoryName] of [
+      ['imageGenerateTool', 'createImageGenerateTool'],
+      ['videoGenerateTool', 'createVideoGenerateTool'],
+      ['musicGenerateTool', 'createMusicGenerateTool'],
+      ['webSearchTool', 'createWebSearchTool'],
+      ['webFetchTool', 'createWebFetchTool'],
+    ]) {
+      const result = gateFactory(src, constName, factoryName);
+      if (!result.changed) {
+        console.warn('[openclaw-latency] fast-chat-tools: anchor not found ' + result.missing + ' in ' + file);
+        _logPatchFailure(homeDir, 'ensureChatToolLatencyPatch', `${result.missing} in ${file}`);
+        return;
+      }
+      src = result.src;
+    }
+
+    const pluginAnchor = '\tif (options?.disablePluginTools) return tools;';
+    if (!src.includes(pluginAnchor)) {
+      console.warn('[openclaw-latency] fast-chat-tools: plugin anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureChatToolLatencyPatch', `plugin anchor missing in ${file}`);
+      return;
+    }
+    src = src.replace(pluginAnchor,
+      '\t__ocToolsDiag("after-built-in-tools", `count=${tools.length} heavy=${shouldCreateHeavyTools ? "yes" : "no"}`);\n' +
+      '\tif (options?.disablePluginTools || isLowLatencyChatChannel && !heavyChatToolsEnabled) return tools;'
+    );
+
+    fs.writeFileSync(fp, src, 'utf-8');
+    console.log('[openclaw-latency] fast-chat-tools: applied to ' + file);
+    return;
+  }
+  console.warn('[openclaw-latency] fast-chat-tools: no openclaw-tools file found');
+}
+
+function ensureStaticConfigModelResolvePatch(vendorDir, homeDir) {
+  const distDir = _getOpenclawDistDir(vendorDir);
+  if (!distDir) return;
+  const files = fs.readdirSync(distDir).filter(f => f.startsWith('model-') && f.endsWith('.js'));
+  const MARKER = '9BizClaw LATENCY STATIC_CONFIG_MODEL_RESOLVE';
+  const helperAnchor =
+    'function resolveRuntimeHooks(params) {\n' +
+    '\tif (params?.skipProviderRuntimeHooks) return STATIC_PROVIDER_RUNTIME_HOOKS;\n' +
+    '\treturn params?.runtimeHooks ?? DEFAULT_PROVIDER_RUNTIME_HOOKS;\n' +
+    '}\n';
+  const helperCode =
+    helperAnchor +
+    `const STATIC_CONFIG_MODEL_RESOLVE_CACHE = /* @__PURE__ */ new Map(); // ${MARKER}\n` +
+    'function resolveStaticConfigModelCacheKey(params) {\n' +
+    '\tif (!params.options?.skipProviderRuntimeHooks) return;\n' +
+    '\tconst providerConfig = params.cfg?.models?.providers?.[params.provider];\n' +
+    '\tif (!providerConfig?.baseUrl || !providerConfig?.api || !Array.isArray(providerConfig.models)) return;\n' +
+    '\tconst modelEntry = providerConfig.models.find((entry) => entry?.id === params.modelId);\n' +
+    '\tif (!modelEntry) return;\n' +
+    '\treturn JSON.stringify([\n' +
+    '\t\tparams.provider,\n' +
+    '\t\tparams.modelId,\n' +
+    '\t\tparams.agentDir,\n' +
+    '\t\tproviderConfig.baseUrl,\n' +
+    '\t\tproviderConfig.api,\n' +
+    '\t\tproviderConfig.auth,\n' +
+    '\t\tmodelEntry.contextWindow,\n' +
+    '\t\tmodelEntry.contextTokens,\n' +
+    '\t\tmodelEntry.maxTokens\n' +
+    '\t]);\n' +
+    '}\n';
+
+  for (const file of files) {
+    const fp = path.join(distDir, file);
+    let src = fs.readFileSync(fp, 'utf-8');
+    if (!src.includes('async function resolveModelAsync(provider, modelId, agentDir, cfg, options)')) continue;
+    if (src.includes(MARKER) || src.includes('STATIC_CONFIG_MODEL_RESOLVE_CACHE')) {
+      console.log('[openclaw-latency] static-model-resolve: already patched');
+      return;
+    }
+    if (!src.includes(helperAnchor)) {
+      console.warn('[openclaw-latency] static-model-resolve: helper anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureStaticConfigModelResolvePatch', `helper anchor missing in ${file}`);
+      return;
+    }
+    src = src.replace(helperAnchor, helperCode);
+
+    const runtimeAnchor = '\tconst runtimeHooks = resolveRuntimeHooks(options);\n';
+    const runtimeReplacement =
+      '\tconst runtimeHooks = resolveRuntimeHooks(options);\n' +
+      '\tconst staticConfigCacheKey = resolveStaticConfigModelCacheKey({\n' +
+      '\t\tprovider: normalizedRef.provider,\n' +
+      '\t\tmodelId: normalizedRef.model,\n' +
+      '\t\tagentDir: resolvedAgentDir,\n' +
+      '\t\tcfg,\n' +
+      '\t\toptions\n' +
+      '\t});\n' +
+      '\tif (staticConfigCacheKey && STATIC_CONFIG_MODEL_RESOLVE_CACHE.has(staticConfigCacheKey)) return STATIC_CONFIG_MODEL_RESOLVE_CACHE.get(staticConfigCacheKey);\n';
+    if (!src.includes(runtimeAnchor)) {
+      console.warn('[openclaw-latency] static-model-resolve: runtime anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureStaticConfigModelResolvePatch', `runtime anchor missing in ${file}`);
+      return;
+    }
+    src = src.replace(runtimeAnchor, runtimeReplacement);
+
+    const modelReturn =
+      '\tif (model) return {\n' +
+      '\t\tmodel,\n' +
+      '\t\tauthStorage,\n' +
+      '\t\tmodelRegistry\n' +
+      '\t};\n' +
+      '\treturn {\n' +
+      '\t\terror: buildUnknownModelError({';
+    const modelReplacement =
+      '\tif (model) {\n' +
+      '\t\tconst resolved = {\n' +
+      '\t\t\tmodel,\n' +
+      '\t\t\tauthStorage,\n' +
+      '\t\t\tmodelRegistry\n' +
+      '\t\t};\n' +
+      '\t\tif (staticConfigCacheKey) STATIC_CONFIG_MODEL_RESOLVE_CACHE.set(staticConfigCacheKey, resolved);\n' +
+      '\t\treturn resolved;\n' +
+      '\t}\n' +
+      '\tconst resolvedError = {\n' +
+      '\t\terror: buildUnknownModelError({';
+    if (!src.includes(modelReturn)) {
+      console.warn('[openclaw-latency] static-model-resolve: return anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureStaticConfigModelResolvePatch', `return anchor missing in ${file}`);
+      return;
+    }
+    src = src.replace(modelReturn, modelReplacement);
+
+    const errorReturn =
+      '\t\t}),\n' +
+      '\t\tauthStorage,\n' +
+      '\t\tmodelRegistry\n' +
+      '\t};\n' +
+      '}\n' +
+      '/**\n' +
+      '* Build a more helpful error when the model is not found.';
+    const errorReplacement =
+      '\t\t}),\n' +
+      '\t\tauthStorage,\n' +
+      '\t\tmodelRegistry\n' +
+      '\t};\n' +
+      '\tif (staticConfigCacheKey) STATIC_CONFIG_MODEL_RESOLVE_CACHE.set(staticConfigCacheKey, resolvedError);\n' +
+      '\treturn resolvedError;\n' +
+      '}\n' +
+      '/**\n' +
+      '* Build a more helpful error when the model is not found.';
+    if (!src.includes(errorReturn)) {
+      console.warn('[openclaw-latency] static-model-resolve: error return anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureStaticConfigModelResolvePatch', `error return anchor missing in ${file}`);
+      return;
+    }
+    src = src.replace(errorReturn, errorReplacement);
+    fs.writeFileSync(fp, src, 'utf-8');
+    console.log('[openclaw-latency] static-model-resolve: applied to ' + file);
+    return;
+  }
+  console.warn('[openclaw-latency] static-model-resolve: no model file found');
+}
+
+function ensureSessionOverrideApiKeyPatch(vendorDir, homeDir) {
+  const distDir = _getOpenclawDistDir(vendorDir);
+  if (!distDir) return;
+  const files = fs.readdirSync(distDir).filter(f => f.startsWith('session-override-') && f.endsWith('.js'));
+  const MARKER = '9BizClaw LATENCY API_KEY_SESSION_OVERRIDE_SKIP';
+  const helperAnchor =
+    'function isProfileForProvider(params) {\n' +
+    '\tconst entry = params.store.profiles[params.profileId];\n' +
+    '\tif (!entry?.provider) return false;\n' +
+    '\treturn normalizeProviderId(entry.provider) === normalizeProviderId(params.provider);\n' +
+    '}\n';
+  const helperCode =
+    helperAnchor +
+    `function hasExplicitConfigApiKeyProvider(cfg, provider) { // ${MARKER}\n` +
+    '\tconst providerConfig = cfg?.models?.providers?.[provider];\n' +
+    '\treturn providerConfig?.auth === "api-key" && typeof providerConfig.apiKey === "string" && providerConfig.apiKey.trim().length > 0;\n' +
+    '}\n';
+  const earlyAnchor = '\tif (!sessionEntry.authProfileOverride?.trim() && !hasConfiguredAuthProfiles && !hasAnyAuthProfileStoreSource(agentDir)) return;\n';
+  const earlyCode =
+    earlyAnchor +
+    '\tif (!sessionEntry.authProfileOverride?.trim() && hasExplicitConfigApiKeyProvider(cfg, provider)) return;\n';
+  for (const file of files) {
+    const fp = path.join(distDir, file);
+    let src = fs.readFileSync(fp, 'utf-8');
+    if (!src.includes('async function resolveSessionAuthProfileOverride(params)')) continue;
+    if (src.includes(MARKER) || src.includes('hasExplicitConfigApiKeyProvider')) {
+      console.log('[openclaw-latency] api-key-session-override: already patched');
+      return;
+    }
+    if (!src.includes(helperAnchor) || !src.includes(earlyAnchor)) {
+      console.warn('[openclaw-latency] api-key-session-override: anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureSessionOverrideApiKeyPatch', `anchor missing in ${file}`);
+      return;
+    }
+    src = src.replace(helperAnchor, helperCode).replace(earlyAnchor, earlyCode);
+    fs.writeFileSync(fp, src, 'utf-8');
+    console.log('[openclaw-latency] api-key-session-override: applied to ' + file);
+    return;
+  }
+  console.warn('[openclaw-latency] api-key-session-override: no session-override file found');
+}
+
+function ensureEmbeddedPiStaticModelResolvePatch(vendorDir, homeDir) {
+  const distDir = _getOpenclawDistDir(vendorDir);
+  if (!distDir) return;
+  const files = fs.readdirSync(distDir).filter(f => f.startsWith('pi-embedded-runner-') && f.endsWith('.js'));
+  const MARKER = '9BizClaw LATENCY PI_STATIC_MODEL_RESOLVE';
+  const anchor = '\t\t\tconst { model, error, authStorage, modelRegistry } = await resolveModelAsync(provider, modelId, agentDir, params.config);\n';
+  const replacement =
+    '\t\t\tconst configuredProvider = params.config?.models?.providers?.[provider];\n' +
+    '\t\t\tconst useStaticConfigModelResolve = Boolean(configuredProvider?.baseUrl && configuredProvider?.api && Array.isArray(configuredProvider?.models) && configuredProvider.models.some((entry) => entry?.id === modelId));\n' +
+    `\t\t\tconst { model, error, authStorage, modelRegistry } = await resolveModelAsync(provider, modelId, agentDir, params.config, useStaticConfigModelResolve ? { skipProviderRuntimeHooks: true } : void 0); // ${MARKER}\n`;
+  for (const file of files) {
+    const fp = path.join(distDir, file);
+    let src = fs.readFileSync(fp, 'utf-8');
+    if (!src.includes('async function runEmbeddedPiAgent(params)')) continue;
+    if (src.includes(MARKER) || src.includes('useStaticConfigModelResolve')) {
+      console.log('[openclaw-latency] pi-static-model-resolve: already patched');
+      return;
+    }
+    if (!src.includes(anchor)) {
+      console.warn('[openclaw-latency] pi-static-model-resolve: anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureEmbeddedPiStaticModelResolvePatch', `anchor missing in ${file}`);
+      return;
+    }
+    src = src.replace(anchor, replacement);
+    fs.writeFileSync(fp, src, 'utf-8');
+    console.log('[openclaw-latency] pi-static-model-resolve: applied to ' + file);
+    return;
+  }
+  console.warn('[openclaw-latency] pi-static-model-resolve: no pi runner file found');
+}
+
+function ensureTelegramFastIdLookupPatch(vendorDir, homeDir) {
+  const distDir = _getOpenclawDistDir(vendorDir);
+  if (!distDir) return;
+  const files = fs.readdirSync(distDir).filter(f => f.startsWith('bot-') && f.endsWith('.js'));
+  const MARKER = '20260708-fast-telegram-id-lookup-v1';
+  const helperAnchor = 'const dispatchTelegramMessage = async ({ context, bot, cfg, runtime, replyToMode, streamMode, textLimit, telegramCfg, telegramDeps = defaultTelegramBotDeps, opts }) => {';
+  const dispatchAnchor =
+    '\tlogTelegramDiag("dispatch-start", `streamMode=${streamMode ?? "n/a"} replyToMode=${replyToMode ?? "n/a"}`);\n' +
+    '\tconst draftMaxChars = Math.min(textLimit, 4096);';
+  const helperCode =
+    'const MODOROCLAW_FAST_TELEGRAM_ID_LOOKUP_MARKER = "' + MARKER + '";\n' +
+    'function normalize9BizClawTelegramLookupText(value) {\n' +
+    '\treturn String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, " ").trim();\n' +
+    '}\n' +
+    'function extract9BizClawTelegramIdLookupQuery(text) {\n' +
+    '\tconst raw = String(text || "").trim();\n' +
+    '\tif (!raw) return "";\n' +
+    '\tconst normalized = normalize9BizClawTelegramLookupText(raw);\n' +
+    '\tif (!/\\bid\\b/.test(normalized)) return "";\n' +
+    '\tif (!/(tim|kiem tra|xem|tra|lay|cho|id nhom|id group|id chat|id kenh)/.test(normalized)) return "";\n' +
+    '\tlet q = raw.replace(/^.*?\\bid\\s*(?:nhóm|nhom|group|chat|kênh|kenh)?\\s*/i, "").trim();\n' +
+    '\tq = q.replace(/^[:：,\\-\\s]+/, "").trim();\n' +
+    '\treturn q.length >= 2 ? q : "";\n' +
+    '}\n' +
+    'async function try9BizClawTelegramIdLookupFastPath(text) {\n' +
+    '\tconst query = extract9BizClawTelegramIdLookupQuery(text);\n' +
+    '\tif (!query) return null;\n' +
+    '\ttry {\n' +
+    '\t\tconst fs = await import("node:fs");\n' +
+    '\t\tconst path = await import("node:path");\n' +
+    '\t\tconst baseDir = process.env.APPDATA ? path.join(process.env.APPDATA, "9bizclaw") : "";\n' +
+    '\t\tif (!baseDir) return null;\n' +
+    '\t\tconst rows = [];\n' +
+    '\t\tconst settingsPath = path.join(baseDir, "telegram-conversation-settings.json");\n' +
+    '\t\tif (fs.existsSync(settingsPath)) {\n' +
+    '\t\t\ttry {\n' +
+    '\t\t\t\tconst settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));\n' +
+    '\t\t\t\tfor (const item of Object.values(settings || {})) {\n' +
+    '\t\t\t\t\tif (item && item.chatId) rows.push(item);\n' +
+    '\t\t\t\t}\n' +
+    '\t\t\t} catch {}\n' +
+    '\t\t}\n' +
+    '\t\tconst memoryDir = path.join(baseDir, "memory", "telegram-chats");\n' +
+    '\t\tif (fs.existsSync(memoryDir)) {\n' +
+    '\t\t\tfor (const file of fs.readdirSync(memoryDir).filter((name) => name.endsWith(".md"))) {\n' +
+    '\t\t\t\ttry {\n' +
+    '\t\t\t\t\tconst chatId = file.replace(/\\.md$/i, "");\n' +
+    '\t\t\t\t\tconst raw = fs.readFileSync(path.join(memoryDir, file), "utf8").slice(0, 2500);\n' +
+    '\t\t\t\t\tconst label = raw.match(/^label:\\s*"?([^"\\r\\n]+)"?/m)?.[1] || raw.match(/^#\\s+(.+)$/m)?.[1] || chatId;\n' +
+    '\t\t\t\t\trows.push({ chatId, label, chatType: "unknown", role: "unknown", enabled: true });\n' +
+    '\t\t\t\t} catch {}\n' +
+    '\t\t\t}\n' +
+    '\t\t}\n' +
+    '\t\tconst q = normalize9BizClawTelegramLookupText(query);\n' +
+    '\t\tconst scored = rows.filter((row) => row && row.enabled !== false && row.chatId).map((row) => {\n' +
+    '\t\t\tconst label = String(row.label || row.title || row.name || row.chatId || "");\n' +
+    '\t\t\tconst hay = normalize9BizClawTelegramLookupText([label, row.chatId, row.entityId, row.role, row.chatType].join(" "));\n' +
+    '\t\t\tlet score = 0;\n' +
+    '\t\t\tif (hay === q) score += 100;\n' +
+    '\t\t\tif (hay.includes(q)) score += 80;\n' +
+    '\t\t\tfor (const part of q.split(/\\s+/).filter(Boolean)) {\n' +
+    '\t\t\t\tif (hay.includes(part)) score += Math.min(12, part.length + 3);\n' +
+    '\t\t\t}\n' +
+    '\t\t\treturn { row, score };\n' +
+    '\t\t}).filter((x) => x.score > 0).sort((a, b) => b.score - a.score);\n' +
+    '\t\tconst picked = scored[0]?.row;\n' +
+    '\t\tif (!picked) return null;\n' +
+    '\t\treturn {\n' +
+    '\t\t\tlabel: String(picked.label || picked.chatId),\n' +
+    '\t\t\tchatId: String(picked.chatId),\n' +
+    '\t\t\trole: String(picked.role || "unknown"),\n' +
+    '\t\t\tchatType: String(picked.chatType || "unknown")\n' +
+    '\t\t};\n' +
+    '\t} catch {\n' +
+    '\t\treturn null;\n' +
+    '\t}\n' +
+    '}\n' +
+    helperAnchor;
+  const fastPathCode =
+    '\tlogTelegramDiag("dispatch-start", `streamMode=${streamMode ?? "n/a"} replyToMode=${replyToMode ?? "n/a"}`);\n' +
+    '\tconst fastTelegramIdLookup = await try9BizClawTelegramIdLookupFastPath(ctxPayload.RawBody ?? ctxPayload.Body ?? "");\n' +
+    '\tif (fastTelegramIdLookup) {\n' +
+    '\t\tconst fastText = "ID nhóm Telegram " + fastTelegramIdLookup.label + " là:\\n\\n" + fastTelegramIdLookup.chatId;\n' +
+    '\t\tlogTelegramDiag("fast-telegram-id-lookup", `chatId=${fastTelegramIdLookup.chatId} marker=${MODOROCLAW_FAST_TELEGRAM_ID_LOOKUP_MARKER}`);\n' +
+    '\t\tawait bot.api.sendMessage(chatId, fastText, buildTelegramThreadParams(threadSpec) ?? {});\n' +
+    '\t\tlogTelegramDiag("dispatch-end", "fastPath=telegram-id-lookup delivered=true");\n' +
+    '\t\treturn;\n' +
+    '\t}\n' +
+    '\tconst draftMaxChars = Math.min(textLimit, 4096);';
+
+  for (const file of files) {
+    const fp = path.join(distDir, file);
+    let src = fs.readFileSync(fp, 'utf-8');
+    if (!src.includes(helperAnchor)) continue;
+    if (src.includes(MARKER) || src.includes('try9BizClawTelegramIdLookupFastPath')) {
+      console.log('[openclaw-latency] telegram-fast-id-lookup: already patched');
+      return;
+    }
+    if (!src.includes(dispatchAnchor)) {
+      console.warn('[openclaw-latency] telegram-fast-id-lookup: dispatch anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureTelegramFastIdLookupPatch', `dispatch anchor missing in ${file}`);
+      return;
+    }
+    src = src.replace(helperAnchor, helperCode).replace(dispatchAnchor, fastPathCode);
+    fs.writeFileSync(fp, src, 'utf-8');
+    console.log('[openclaw-latency] telegram-fast-id-lookup: applied to ' + file);
+    return;
+  }
+  console.warn('[openclaw-latency] telegram-fast-id-lookup: no telegram bot dist file found');
+}
+
+function ensureOpenclawLatencyPatches(vendorDir, homeDir) {
+  if (process.env.MODOROCLAW_DISABLE_LATENCY_PATCHES === '1') {
+    console.log('[openclaw-latency] disabled via MODOROCLAW_DISABLE_LATENCY_PATCHES=1');
+    return;
+  }
+  ensureExplicitProviderDiscoverySkip(vendorDir, homeDir);
+  ensureChatToolLatencyPatch(vendorDir, homeDir);
+  ensureStaticConfigModelResolvePatch(vendorDir, homeDir);
+  ensureSessionOverrideApiKeyPatch(vendorDir, homeDir);
+  ensureEmbeddedPiStaticModelResolvePatch(vendorDir, homeDir);
+  ensureTelegramFastIdLookupPatch(vendorDir, homeDir);
+}
+
+// ---------------------------------------------------------------------------
 // applyAllVendorPatches — one call from boot or build script
 // ---------------------------------------------------------------------------
 
@@ -642,6 +1122,7 @@ function applyAllVendorPatches({ vendorDir, homeDir, workspaceDir }) {
   results.friendEvent = _tryPatch('friendEvent', () => ensureOpenzcaFriendEventFix(vendorDir, workspaceDir));
   results.authCacheTtl = _tryPatch('authCacheTtl', () => ensureAuthCacheTtlExtension(vendorDir));
   results.sessionFreeze = _tryPatch('sessionFreeze', () => ensureSessionFreezePatches(vendorDir));
+  results.latency = _tryPatch('latency', () => ensureOpenclawLatencyPatches(vendorDir, homeDir));
 
   return results;
 }
@@ -897,5 +1378,6 @@ module.exports = {
   ensureOpenzcaFriendEventFix,
   ensureAuthCacheTtlExtension,
   ensureSessionFreezePatches,
+  ensureOpenclawLatencyPatches,
   applyAllVendorPatches,
 };

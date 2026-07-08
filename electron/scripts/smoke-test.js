@@ -1727,6 +1727,31 @@ try {
   } else {
     pass('session-freeze patches wired (bootstrap + cli-sync + prompt)');
   }
+  const hasLatencyPatches =
+    vendorPatchSrc.includes('ensureOpenclawLatencyPatches') &&
+    vendorPatchSrc.includes('9BizClaw LATENCY EXPLICIT_PROVIDER_SKIP') &&
+    vendorPatchSrc.includes('9BizClaw LATENCY FAST_CHAT_TOOLS') &&
+    vendorPatchSrc.includes('heavyChatToolsEnabled') &&
+    vendorPatchSrc.includes('enableHeavyChatTools') &&
+    vendorPatchSrc.includes('STATIC_CONFIG_MODEL_RESOLVE_CACHE') &&
+    vendorPatchSrc.includes('hasExplicitConfigApiKeyProvider') &&
+    vendorPatchSrc.includes('skipProviderRuntimeHooks: true') &&
+    vendorPatchSrc.includes('MODOROCLAW_DISABLE_LATENCY_PATCHES');
+  if (!hasLatencyPatches) {
+    fail('openclaw latency patches', 'vendor-patches.js must keep explicit-provider, fast-chat-tools, static-model, and API-key session override patches');
+  } else {
+    pass('openclaw latency patches wired');
+  }
+  const gatewaySource = fs.readFileSync(path.join(__dirname, '..', 'lib', 'gateway.js'), 'utf-8');
+  const gatewayWebFetchIdx = gatewaySource.indexOf('ensureWebFetchLocalhostFix,');
+  const gatewayLatencyIdx = gatewaySource.indexOf('ensureOpenclawLatencyPatches,');
+  const buildSsrfixIdx = vendorPatchSrc.indexOf("results.ssrf = _tryPatch");
+  const buildLatencyIdx = vendorPatchSrc.indexOf("results.latency = _tryPatch");
+  if (!(gatewayWebFetchIdx >= 0 && gatewayLatencyIdx > gatewayWebFetchIdx && buildSsrfixIdx >= 0 && buildLatencyIdx > buildSsrfixIdx)) {
+    fail('openclaw latency patch order', 'web_fetch localhost patch must run before latency fast-chat tool gating in boot and build-time patch order');
+  } else {
+    pass('openclaw latency patch order preserves web_fetch anchors');
+  }
   const agentsSrc = fs.readFileSync(path.join(__dirname, '..', '..', 'AGENTS.md'), 'utf-8');
   const tokenInstructionLines = agentsSrc.split(/\r?\n/).filter(line =>
     /api\/auth\/token\?bot_token/i.test(line) ||

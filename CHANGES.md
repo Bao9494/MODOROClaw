@@ -4,6 +4,50 @@
 
 ---
 
+## 2026-07-08
+
+### Telegram priority + Zalo-parity hardening
+
+**File(s):** `electron/lib/telegram-memory.js`, `electron/lib/cron-api.js`, `electron/lib/cron.js`, `electron/lib/channels.js`, `electron/lib/appointments.js`, `AGENTS.md`, `MEMORY.md`, `skills/operations/telegram-ceo.md`, `skills/appointments.md`, `electron/scripts/check-telegram-memory-contract.js`, `docs/telegram-zalo-architecture-parity.md`, `docs/plans/2026-07-08-telegram-zalo-parity-hardening.md`
+
+**Root cause:** Telegram đã có nền memory/UI nhưng BOT vẫn dễ suy luận theo Zalo: hỏi tên group thì đi tìm cache Zalo, gửi/nhắc lịch không có API Telegram lookup rõ ràng, appointment Telegram push bỏ qua `toId`, và cron fixed muốn gửi Telegram phải đi vòng qua LLM hoặc default chat.
+
+**Fix/Change:**
+- Thêm `findTelegramConversations()` để tra conversation theo tên/ID/role/type/enabled.
+- Thêm API local `/api/telegram/conversations`, `/api/telegram/seed`, `/api/telegram/profile`, `/api/telegram/send`.
+- Cho `sendTelegramPhoto()` nhận `targetChatId`.
+- Cho `/api/cron/create` nhận target Telegram theo `targetChatId`/`telegramName`/`telegramGroupName`, lưu `telegramTarget` cho agent cron, và tạo fixed cron dạng `exec: telegram msg send <chatId> "<text>"`.
+- Cho `cron.js` chạy `telegram msg send` như safe exec, không cần LLM để gửi một câu cố định.
+- Cho `appointments.js` dùng `pushTargets[].toId` làm Telegram `targetChatId`.
+- Cập nhật AGENTS/MEMORY/skills để Telegram là kênh ưu tiên; Zalo chỉ dùng khi CEO nói rõ Zalo hoặc Telegram lookup không có kết quả.
+- Thêm regression guard vào `check-telegram-memory-contract.js`.
+
+**Tradeoff/Decision:** Chưa viết provider Telegram riêng như Zalo/openzca vì phạm vi lớn và rủi ro cao. Bản này harden các tầng đã có: cache/runtime settings/API/cron/memory, đủ để BOT không rơi lại sang Zalo trong các luồng gửi group và nhắc lịch phổ biến.
+
+**Runtime verification/follow-up fixes:**
+- Added OpenClaw session metadata collector so Telegram names can resolve from `.openclaw/agents/main/sessions` when provider cache is thin.
+- Fixed one-time cron timers scheduled farther than Node's 32-bit timeout limit; long timers now re-arm in safe chunks and log `next check`.
+- Fixed Telegram session pre-warm in `gateway.js` by importing `getTelegramConfigWithRecovery` and `spawnOpenClawSafe`.
+- Installed the rebuilt runtime into `C:\Users\bao.nguyen\AppData\Local\Programs\9bizclaw`; license stayed valid, 9Router returned 36 models, gateway returned 200, Telegram lookup resolved LLK/NovaTria/CEO, and a 30-day cron test did not fire early.
+- Current source `npm run smoke` still fails 3 vendor sentinels because `electron/vendor` is missing `9router` and `modoro-zalo`; runtime packaged preflight is OK because it uses `%APPDATA%\9bizclaw\vendor`.
+- Residual: Zalo is currently disabled by Dashboard config, not crashed; cron API is listening on both `20200` and `20201` and should be cleaned up in a later narrow pass.
+
+**Provider error fix:** Runtime log showed the user-facing `LLM request failed: provider rejected the request schema or tool payload` was actually a 9Router/Codex model mismatch: combo `zalo` pointed at an unsupported older Codex model for the current ChatGPT account. Backed up `C:\Users\bao.nguyen\AppData\Roaming\9router\db\data.sqlite`, updated combo `zalo` to `["cx/gpt-5.4","cx/gpt-5.5"]`, and updated source `ensure9RouterZaloCombo()` to repair both SQLite and legacy `db.json` stores. Verified `/v1/chat/completions` with `model=zalo` returns via `gpt-5.4`, and `openclaw agent --agent main ... --json` succeeds with model `zalo`.
+
+**SQLite ABI fix:** 9Router's `better-sqlite3` native binding belongs to the vendor Node runtime, not the Electron process or the user's system Node. The SQLite combo repair now spawns the vendor Node binary to read/write `data.sqlite`, preventing ABI mismatch errors during startup.
+
+**Cron session fix:** After a clean restart, the gateway pre-warm reliably creates `agent:main:main` with Telegram CEO delivery context, while `agent:main:telegram:direct:<id>` may not exist until an inbound Telegram message creates it. Cron now uses the pre-warmed CEO session key so reminders do not hit `session not found` and fall into the slow agent fallback path.
+
+**Telegram ID lookup latency fix:** A CEO Telegram message asking for the ID of `LLK Agency (GMT +7) - LLK-999999` took 218,489ms end-to-end because the agent chose `rg` over the full `%APPDATA%\9bizclaw` tree; the tool call alone took 196,752ms and hit browser/cache lock files. Updated `skills/operations/telegram-ceo.md` to use `/api/telegram/conversations` for name->ID lookup and added an OpenClaw vendor fast-path for simple Telegram ID lookup questions so these requests can be answered from `telegram-conversation-settings.json` / `memory/telegram-chats/*.md` without an LLM tool scan. Runtime verification: `/api/telegram/conversations?name=LLK Agency...` returned `-1003857797941` in 345ms; `model=zalo` returned `pong` in 3301ms after restart.
+
+**Runtime disk-full recovery note:** During live verification, drive `C:` reached `0GB` free and runtime logs showed `ENOSPC` / `DISK FULL` while Brain, Zalo cache, and OpenClaw session store were writing. Offloaded partial temp build artifacts to `O:\project\9bizclaw\backups\offloaded-temp-20260708-135024` and removed stale temp build/check folders `MODOROClaw-build-main` and `MODOROClaw-vendor-check`; `C:` recovered to ~14.76GB free. Verified small writes in `.openclaw\agents\main\sessions` and `%APPDATA%\9bizclaw`, gateway `18789`, Telegram lookup, and 9Router `model=zalo`.
+
+**Runtime config restore note:** A manual PowerShell JSON write added a UTF-8 BOM to `C:\Users\bao.nguyen\.openclaw\openclaw.json`, which made OpenClaw preflight treat the config as corrupt. Restored the latest backup by stripping the BOM with Node and verified `openclaw.json` parses without BOM.
+
+**State:** done in source branch + runtime installed/verified. Merge/commit pending.
+
+---
+
 ## 2026-06-02
 
 ### Version: free edition renumbered 3.0.1-free → 2.0.0-free

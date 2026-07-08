@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const ctx = require('./context');
 const { appDataDir, getBundledVendorDir, getBundledNodeBin, findNodeBin, findGlobalPackageFile } = require('./boot');
 const { writeOpenClawConfigIfChanged } = require('./config');
@@ -35,6 +35,34 @@ function get9RouterDataDir() {
 
 /** @returns {string} Path to 9Router's legacy db.json settings file */
 function get9RouterDbPath() { return path.join(get9RouterDataDir(), 'db.json'); }
+
+/** @returns {string} Path to 9Router's SQLite database file */
+function get9RouterSqliteDbPath() { return path.join(get9RouterDataDir(), 'db', 'data.sqlite'); }
+
+const ZALO_COMBO_MODELS = ['cx/gpt-5.4', 'cx/gpt-5.5'];
+const ZALO_COMBO_MODELS_JSON = JSON.stringify(ZALO_COMBO_MODELS);
+
+function get9RouterSqliteNodeBin() {
+  const candidates = [];
+  try { candidates.push(getBundledNodeBin()); } catch {}
+  if (process.platform === 'win32') {
+    candidates.push(path.join(process.env.APPDATA || path.join(ctx.HOME, 'AppData', 'Roaming'), '9bizclaw', 'vendor', 'node', 'node.exe'));
+  } else {
+    candidates.push(path.join(appDataDir(), 'vendor', 'node', 'bin', 'node'));
+  }
+  if (/node(?:\.exe)?$/i.test(path.basename(process.execPath || ''))) {
+    candidates.push(process.execPath);
+  }
+  const existing = candidates.filter(Boolean).find(p => {
+    try { return fs.existsSync(p); } catch { return false; }
+  });
+  if (existing) return existing;
+  try {
+    const fallback = findNodeBin();
+    if (fallback && fs.existsSync(fallback)) return fallback;
+  } catch {}
+  return process.execPath;
+}
 
 // Per-install JWT secret. Must be stable across restarts (so 9Router auth
 // cookies survive) but NOT a hardcoded constant — this source is public, and a
@@ -247,37 +275,126 @@ function ensure9RouterApiKeySync() {
   }
 }
 
-// Create a "zalo" combo in 9Router's db.json if it doesn't exist yet.
-// The zalo combo uses cx/gpt-5.2 (lighter, faster model for customer service).
-// Idempotent: skips silently if a combo named "zalo" already exists.
-// Async: retries once after 2s if db.json not yet created by 9Router.
+function ensure9RouterZaloComboSqlite() {
+  const dbPath = get9RouterSqliteDbPath();
+  if (!fs.existsSync(dbPath)) return 'missing';
+  const runtimeModule = path.join(get9RouterDataDir(), 'runtime', 'node_modules', 'better-sqlite3');
+  if (!fs.existsSync(runtimeModule)) return 'sqlite-runtime-missing';
+  try {
+    const nodeBin = get9RouterSqliteNodeBin();
+    const script = `
+const crypto = require('crypto');
+const Database = require(process.env.NINE_ROUTER_BETTER_SQLITE3);
+const dbPath = process.env.NINE_ROUTER_SQLITE_DB;
+const modelsJson = process.env.NINE_ROUTER_ZALO_MODELS;
+let db;
+try {
+  db = new Database(dbPath);
+  const hasCombos = db.prepare("select name from sqlite_master where type='table' and name='combos'").get();
+  if (!hasCombos) {
+    process.stdout.write(JSON.stringify({ status: 'sqlite-no-combos-table' }));
+    process.exit(0);
+  }
+  const row = db.prepare("select id, models from combos where name='zalo'").get();
+  const now = new Date().toISOString();
+  if (!row) {
+    db.prepare("insert into combos (id, name, kind, models, createdAt, updatedAt) values (?, 'zalo', null, ?, ?, ?)")
+      .run(crypto.randomUUID(), modelsJson, now, now);
+    process.stdout.write(JSON.stringify({ status: 'created' }));
+    process.exit(0);
+  }
+  let currentModels = [];
+  try { currentModels = JSON.parse(row.models || '[]'); } catch {}
+  const needsUpdate = JSON.stringify(currentModels) !== modelsJson
+    || currentModels.some(m => /gpt-5\\.2\\b/.test(String(m || '')));
+  if (!needsUpdate) {
+    process.stdout.write(JSON.stringify({ status: 'exists' }));
+    process.exit(0);
+  }
+  db.prepare("update combos set models=?, updatedAt=? where name='zalo'").run(modelsJson, now);
+  process.stdout.write(JSON.stringify({ status: 'updated', from: row.models, to: modelsJson }));
+} catch (e) {
+  process.stderr.write(e && e.stack ? e.stack : String(e));
+  process.exit(1);
+} finally {
+  try { db && db.close && db.close(); } catch {}
+}
+`;
+    const res = spawnSync(nodeBin, ['-e', script], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 20000,
+      env: {
+        ...process.env,
+        NINE_ROUTER_BETTER_SQLITE3: runtimeModule,
+        NINE_ROUTER_SQLITE_DB: dbPath,
+        NINE_ROUTER_ZALO_MODELS: ZALO_COMBO_MODELS_JSON,
+      },
+    });
+    if (res.error) {
+      console.warn('[9router] ensure zalo combo SQLite child error:', res.error.message);
+      return 'sqlite-child-error';
+    }
+    if (res.status !== 0) {
+      console.warn('[9router] ensure zalo combo SQLite child failed:', (res.stderr || '').slice(0, 500));
+      return 'sqlite-error';
+    }
+    let payload = null;
+    try { payload = JSON.parse(String(res.stdout || '').trim()); } catch {}
+    const status = payload?.status || 'sqlite-unknown';
+    if (status === 'created') console.log('[9router] created zalo combo (gpt-5.4 fallback gpt-5.5) in SQLite');
+    if (status === 'updated') {
+      console.log('[9router] updated zalo combo from', payload.from, 'to', payload.to, '(SQLite)');
+    }
+    return status;
+  } catch (e) {
+    console.error('[9router] ensure zalo combo SQLite error:', e.message);
+    return 'sqlite-error';
+  }
+}
+
+// Create/update a "zalo" combo in 9Router's store.
+// The combo used to point at an unsupported older Codex model. Keep Zalo on
+// supported Codex models so agent fallback/cron do not fail.
+// Supports current SQLite storage and legacy db.json. Async: retries once after
+// 2s if neither store exists yet.
 async function ensure9RouterZaloCombo() {
-  const _tryCreate = () => {
+  const _tryCreateLegacyJson = () => {
     const dbPath = get9RouterDbPath();
     if (!fs.existsSync(dbPath)) return 'missing';
     const raw = fs.readFileSync(dbPath, 'utf-8');
     const db = JSON.parse(raw);
     if (!Array.isArray(db.combos)) db.combos = [];
-    if (db.combos.some(c => c && c.name === 'zalo')) return 'exists';
     const now = new Date().toISOString();
-    db.combos.push({
-      id: crypto.randomUUID(),
-      name: 'zalo',
-      models: ['cx/gpt-5.2'],
-      createdAt: now,
-      updatedAt: now,
-    });
+    const existing = db.combos.find(c => c && c.name === 'zalo');
+    if (existing) {
+      const models = Array.isArray(existing.models) ? existing.models : [];
+      const needsUpdate = JSON.stringify(models) !== ZALO_COMBO_MODELS_JSON
+        || models.some(m => /gpt-5\.2\b/.test(String(m || '')));
+      if (!needsUpdate) return 'exists';
+      existing.models = [...ZALO_COMBO_MODELS];
+      existing.updatedAt = now;
+      fs.writeFileSync(dbPath, JSON.stringify(db, null, 2), 'utf-8');
+      console.log('[9router] updated zalo combo (gpt-5.4 fallback gpt-5.5) in db.json');
+      return 'updated';
+    }
+    db.combos.push({ id: crypto.randomUUID(), name: 'zalo', models: [...ZALO_COMBO_MODELS], createdAt: now, updatedAt: now });
     fs.writeFileSync(dbPath, JSON.stringify(db, null, 2), 'utf-8');
-    console.log('[9router] created zalo combo (gpt-5.2)');
+    console.log('[9router] created zalo combo (gpt-5.4 fallback gpt-5.5) in db.json');
     return 'created';
+  };
+  const _tryCreate = () => {
+    const sqliteResult = ensure9RouterZaloComboSqlite();
+    if (['created', 'updated', 'exists'].includes(sqliteResult)) return sqliteResult;
+    return _tryCreateLegacyJson();
   };
   try {
     const r = _tryCreate();
     if (r !== 'missing') return;
-    console.log('[9router] zalo combo: db.json not found, retrying in 2s...');
+    console.log('[9router] zalo combo: database not found, retrying in 2s...');
     await new Promise(resolve => setTimeout(resolve, 2000));
     const r2 = _tryCreate();
-    if (r2 === 'missing') console.warn('[9router] zalo combo: db.json still missing after retry — combo not created');
+    if (r2 === 'missing') console.warn('[9router] zalo combo: database still missing after retry — combo not created');
   } catch (e) { console.error('[9router] ensure zalo combo error:', e.message); }
 }
 

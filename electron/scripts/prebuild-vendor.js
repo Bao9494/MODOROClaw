@@ -496,9 +496,12 @@ function npmInstallVendorPackages() {
   // --no-audit + --no-fund for quieter CI logs,
   // --omit=dev so we don't drag in their devDependencies,
   // --save-exact so accidental future re-runs don't drift.
+  // --ignore-scripts avoids package postinstall warm-ups writing into the
+  // build user's runtime dirs; packaged 9router self-heals those optional
+  // runtime deps on launch.
   const r = spawnSync(
     process.platform === 'win32' ? 'npm.cmd' : 'npm',
-    ['install', ...PINNED, '--save-exact', '--no-package-lock', '--no-audit', '--no-fund', '--omit=dev'],
+    ['install', ...PINNED, '--save-exact', '--no-package-lock', '--no-audit', '--no-fund', '--omit=dev', '--ignore-scripts'],
     { cwd: VENDOR, stdio: 'inherit', shell: process.platform === 'win32' }
   );
   if (r.status !== 0) fatal(`npm install in vendor/ failed (exit ${r.status})`);

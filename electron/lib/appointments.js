@@ -225,7 +225,7 @@ async function fireApptPushTarget(apt, target) {
   try {
     let ok = false;
     if (target.channel === 'telegram') {
-      ok = !!(await sendTelegram(text));
+      ok = !!(await sendTelegram(text, { targetChatId: target.toId || null }));
     } else if (target.channel === 'zalo_user' || target.channel === 'zalo_group') {
       if (isChannelPaused('zalo')) {
         // Zalo paused — don't silently drop. Alert CEO on Telegram so they know
