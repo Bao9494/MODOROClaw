@@ -6,6 +6,21 @@
 
 ## 2026-07-08
 
+### Telegram role-bound tool scope
+
+**File(s):** `electron/lib/telegram-policy.js`, `electron/scripts/check-telegram-memory-contract.js`
+
+**Root cause:** Older Telegram cache/profile rows could keep a stale `toolScope` after the conversation role changed. Example: a group reclassified from `customer` to `internal` could still expose `toolScope: customer`, causing the agent to load the wrong knowledge tier.
+
+**Fix/Change:**
+- Normalize `toolScope` from the current role instead of trusting stale cached values.
+- Keep CEO -> `admin`, internal -> `internal`, customer -> `customer`, unknown -> `public_only`.
+- Add a contract assertion for stale customer scope on an internal Telegram group.
+
+**Verification:** `node --check` for changed files PASS; `node electron/scripts/check-telegram-memory-contract.js` PASS.
+
+---
+
 ### Telegram directory counts disambiguation
 
 **File(s):** `electron/lib/telegram-directory.js`, `electron/scripts/check-telegram-memory-contract.js`

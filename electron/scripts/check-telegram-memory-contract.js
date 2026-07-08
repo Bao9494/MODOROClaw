@@ -67,6 +67,13 @@ async function run() {
       && internalGroupPolicy.canUseInternalKnowledge === true
       && internalGroupPolicy.canUseAdminTools === false,
       JSON.stringify(internalGroupPolicy));
+    const staleScopePolicy = policy.buildTelegramConversationPolicy({ chatType: 'supergroup', role: 'internal', toolScope: 'customer' });
+    assert('telegram policy rejects stale tool scope when role changes',
+      staleScopePolicy.role === 'internal'
+      && staleScopePolicy.toolScope === 'internal'
+      && staleScopePolicy.canUseInternalKnowledge === true
+      && staleScopePolicy.canUseCustomerKnowledge === false,
+      JSON.stringify(staleScopePolicy));
     const unknownPolicy = policy.buildTelegramConversationPolicy({ chatType: 'private', role: 'unknown' });
     assert('telegram unknown policy is public only and cannot reply by default',
       unknownPolicy.role === 'unknown'

@@ -82,6 +82,15 @@ function roleToolScope(role) {
   return 'public_only';
 }
 
+function normalizeTelegramToolScope(toolScope, role) {
+  const expected = roleToolScope(role);
+  const raw = String(toolScope || '').trim().toLowerCase();
+  if (!raw) return expected;
+  const allowed = ['admin', 'internal', 'customer', 'public_only'];
+  if (!allowed.includes(raw)) return expected;
+  return raw === expected ? raw : expected;
+}
+
 function normalizeTelegramResponseMode(mode, { role = '', chatType = '' } = {}) {
   const raw = String(mode || '').trim().toLowerCase();
   if (raw && RESPONSE_MODE_ALIASES[raw]) return RESPONSE_MODE_ALIASES[raw];
@@ -104,7 +113,7 @@ function buildTelegramConversationPolicy(input = {}) {
   const enabled = normalizeTelegramEnabled(input.enabled, true);
   const audience = roleAudience(role);
   const scopeHints = roleScopeHints(role);
-  const toolScope = input.toolScope || roleToolScope(role);
+  const toolScope = normalizeTelegramToolScope(input.toolScope, role);
   return {
     enabled,
     role,
@@ -133,6 +142,7 @@ module.exports = {
   roleAudience,
   roleScopeHints,
   roleToolScope,
+  normalizeTelegramToolScope,
   normalizeTelegramResponseMode,
   normalizeTelegramEnabled,
   buildTelegramConversationPolicy,
