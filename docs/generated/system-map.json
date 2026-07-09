@@ -2,8 +2,8 @@
   "generatedBy": "electron/scripts/generate-system-map.js",
   "counts": {
     "apiRoutes": 90,
-    "ipcHandlers": 235,
-    "preloadBridges": 228,
+    "ipcHandlers": 236,
+    "preloadBridges": 229,
     "dashboardPages": 21,
     "capabilityContracts": 3
   },
@@ -1585,6 +1585,10 @@
       "source": "electron/lib/dashboard-ipc.js"
     },
     {
+      "channel": "save-telegram-conversation-profile-sections",
+      "source": "electron/lib/dashboard-ipc.js"
+    },
+    {
       "channel": "save-telegram-conversation-settings",
       "source": "electron/lib/dashboard-ipc.js"
     },
@@ -2693,6 +2697,11 @@
       "source": "electron/preload.js"
     },
     {
+      "name": "saveTelegramConversationProfileSections",
+      "channel": "save-telegram-conversation-profile-sections",
+      "source": "electron/preload.js"
+    },
+    {
       "name": "saveTelegramConversationSettings",
       "channel": "save-telegram-conversation-settings",
       "source": "electron/preload.js"
@@ -3009,11 +3018,11 @@
   "largeSourceFiles": [
     {
       "path": "electron/ui/dashboard.html",
-      "bytes": 805165
+      "bytes": 809649
     },
     {
       "path": "electron/lib/dashboard-ipc.js",
-      "bytes": 320575
+      "bytes": 321210
     },
     {
       "path": "electron/lib/license.js",
@@ -3045,11 +3054,11 @@
     },
     {
       "path": "electron/lib/vendor-patches.js",
-      "bytes": 85339
+      "bytes": 92456
     },
     {
       "path": "electron/lib/gateway.js",
-      "bytes": 84512
+      "bytes": 89963
     },
     {
       "path": "electron/lib/runtime-installer.js",
@@ -3080,6 +3089,10 @@
       "bytes": 52447
     },
     {
+      "path": "electron/lib/telegram-memory.js",
+      "bytes": 52039
+    },
+    {
       "path": "electron/lib/google-routes.js",
       "bytes": 45145
     },
@@ -3098,10 +3111,6 @@
     {
       "path": "electron/lib/boot.js",
       "bytes": 37246
-    },
-    {
-      "path": "electron/lib/telegram-memory.js",
-      "bytes": 36930
     },
     {
       "path": "electron/lib/ceo-memory.js",

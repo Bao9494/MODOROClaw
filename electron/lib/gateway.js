@@ -63,6 +63,7 @@ let _fwRouterHealthFails = 0;
 
 const GATEWAY_READY_DEADLINE_MS = 240000;
 const WATCHDOG_BOOT_GRACE_MS = 360000;
+const BOOT_FAST_GATEWAY_SPAWN_MARKER = '20260709-fast-gateway-spawn-before-9router-model-wait';
 
 // ============================================
 //  KILL HELPERS
@@ -144,6 +145,99 @@ function isGatewayAlive(timeoutMs = 15000) {
     });
     req.on('error', () => resolve(false));
     req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
+
+function schedule9RouterPostReadyWarmup({ t0 } = {}) {
+  const bootT0 = Number(t0) || Date.now();
+  return (async () => {
+    // BOOT_FAST_GATEWAY_SPAWN_MARKER: gateway spawn does not await 9Router /v1/models.
+    // The router/model warmup improves first reply latency, but it is not a bind-time
+    // correctness gate for OpenClaw. Running it in the background avoids stacking
+    // router cold start time in front of gateway startup.
+    let nineRouterReady = false;
+    let nineRouterModelCount = 0;
+    const _9rDelays = [
+      ...Array(5).fill(200),
+      ...Array(5).fill(500),
+      ...Array(50).fill(1000),
+    ];
+    for (let i = 0; i < _9rDelays.length; i++) {
+      await new Promise(r => setTimeout(r, _9rDelays[i]));
+      try {
+        const body = await new Promise((resolve, reject) => {
+          const req = require('http').get('http://127.0.0.1:20128/v1/models', { timeout: 2000 }, (res) => {
+            if (res.statusCode !== 200) { res.resume(); reject(); return; }
+            let buf = '';
+            res.setEncoding('utf8');
+            res.on('data', (c) => { buf += c; });
+            res.on('end', () => resolve(buf));
+          });
+          req.on('error', reject);
+          req.on('timeout', () => { req.destroy(); reject(); });
+        });
+        try {
+          const parsed = JSON.parse(body);
+          nineRouterModelCount = Array.isArray(parsed?.data) ? parsed.data.length : 0;
+        } catch { nineRouterModelCount = 0; }
+        nineRouterReady = true;
+        console.log(`[boot] T+${Date.now() - bootT0}ms 9Router /v1/models ready in background, ${nineRouterModelCount} models`);
+        try { ensure9RouterApiKeySync(); } catch (e) { console.warn('[boot] post-ready apiKeySync error:', e?.message); }
+        try { await ensure9RouterZaloCombo(); } catch (e) { console.warn('[boot] post-ready zaloCombo error:', e?.message); }
+        try { await ensureZaloModelDefault(); } catch (e) { console.warn('[boot] post-ready zaloModelDefault error:', e?.message); }
+        break;
+      } catch {}
+    }
+    if (!nineRouterReady) {
+      console.warn(`[boot] T+${Date.now() - bootT0}ms 9Router DID NOT respond within background warmup budget - first reply may be slow`);
+      try { auditLog('9router_timeout', { waitMs: Date.now() - bootT0, msg: '9Router did not respond within background warmup budget' }); } catch {}
+      return;
+    }
+    if (nineRouterModelCount === 0) {
+      console.error(`[boot] T+${Date.now() - bootT0}ms 9Router returned 0 models - combo 'main' is empty. Bot replies and cron may fail until user configures combo in 9Router tab.`);
+      try {
+        const diagPath = path.join(getWorkspace(), 'logs', 'boot-diagnostic.txt');
+        fs.mkdirSync(path.dirname(diagPath), { recursive: true });
+        fs.appendFileSync(diagPath, `\n[${new Date().toISOString()}] [boot] CRITICAL: 9Router /v1/models returned 0 models. Combo 'main' empty. Bot may 404 on first message.\n`, 'utf-8');
+      } catch {}
+      setTimeout(() => {
+        sendTelegram(
+          '*Canh bao: 9Router combo rong*\n\n' +
+          'Combo AI `main` khong co model nao. Bot co the khong phan hoi va cron co the fail cho toi khi vao tab *9Router*, chon model cho combo `main` va bam Save.'
+        ).catch(() => {});
+      }, 2000);
+      return;
+    }
+
+    const warmupT0 = Date.now();
+    console.log(`[boot] T+${Date.now() - bootT0}ms pre-warm: pinging 9Router model "main"...`);
+    const http = require('http');
+    let warmupApiKey = '';
+    try {
+      const { appDataDir } = require('./boot');
+      const dbPath = path.join(appDataDir(), '9router', 'db.json');
+      const db = JSON.parse(fs.readFileSync(dbPath, 'utf-8'));
+      const keys = Array.isArray(db.apiKeys) ? db.apiKeys : [];
+      const active = keys.find(k => k && k.isActive !== false && k.name === '9BizClaw') || keys.find(k => k && k.isActive !== false && typeof k.key === 'string');
+      if (active?.key) warmupApiKey = active.key;
+    } catch (e) { console.warn(`[boot] pre-warm key read failed: ${e.message}`); }
+    const payload = JSON.stringify({ model: 'main', messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 });
+    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) };
+    if (warmupApiKey) headers.Authorization = 'Bearer ' + warmupApiKey;
+    const req = http.request({ hostname: '127.0.0.1', port: 20128, path: '/v1/chat/completions', method: 'POST', headers, timeout: 15000 }, (res) => {
+      let body = '';
+      res.on('data', (d) => { body += d; });
+      res.on('end', () => {
+        const ok = res.statusCode >= 200 && res.statusCode < 300;
+        console.log(`[boot] T+${Date.now() - bootT0}ms pre-warm ${ok ? 'done' : 'failed'} (${res.statusCode}, ${Date.now() - warmupT0}ms)`);
+      });
+    });
+    req.on('error', (e) => { console.warn(`[boot] T+${Date.now() - bootT0}ms pre-warm error: ${e.message} (${Date.now() - warmupT0}ms)`); });
+    req.on('timeout', () => { req.destroy(); console.warn(`[boot] T+${Date.now() - bootT0}ms pre-warm timeout (15s)`); });
+    req.write(payload);
+    req.end();
+  })().catch(e => {
+    console.warn('[boot] background 9Router post-ready warmup failed:', e?.message || String(e));
   });
 }
 
@@ -440,6 +534,9 @@ async function _startOpenClawImpl(opts = {}) {
   try { killAllOpenClawProcesses(); } catch {}
   cleanupOrphanZaloListener();
 
+  void schedule9RouterPostReadyWarmup({ t0 });
+  if (process.env.MODOROCLAW_LEGACY_BLOCKING_9ROUTER_WAIT === '1') {
+
   // Wait for 9Router /v1/models — bumped from 10 to 60 iterations because Node
   // module loading on Windows can take 15-20s. If we spawn the gateway before
   // 9router responds, the modoro-zalo plugin's first call to 9router fails with
@@ -540,6 +637,8 @@ async function _startOpenClawImpl(opts = {}) {
     req.on('timeout', () => { req.destroy(); console.warn(`[boot] T+${Date.now() - t0}ms pre-warm timeout (15s)`); });
     req.write(payload);
     req.end();
+  }
+
   }
 
   // Start gateway — cwd = writable workspace so it reads/writes AGENTS.md, schedules.json, etc.

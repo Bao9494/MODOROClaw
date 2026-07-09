@@ -38,6 +38,8 @@ const TELEGRAM_PROFILE_SECTION_MAP = {
   knowledge: 'Kien thuc rieng can nap',
   interactionNotes: 'Luu y khi tuong tac',
 };
+const TELEGRAM_KNOWLEDGE_ALLOWED_EXTENSIONS = new Set(['.md', '.txt', '.json', '.jsonl', '.csv']);
+const TELEGRAM_KNOWLEDGE_MAX_FILE_BYTES = 256 * 1024;
 
 function sanitizeTelegramChatId(value) {
   if (value == null) return '';
@@ -763,13 +765,18 @@ function seedTelegramConversationsFromRuntime() {
     const existed = !!(beforePath && fs.existsSync(beforePath));
     const profile = ensureTelegramConversationProfile({
       telegramChatId: conversation.chatId,
-        telegramChatType: conversation.chatType,
-        role: conversation.role,
-        responseMode: conversation.responseMode,
-        toolScope: conversation.toolScope,
-        aliases: conversation.aliases || [],
-        label: conversation.label,
-      });
+      telegramChatType: conversation.chatType,
+      role: conversation.role,
+      responseMode: conversation.responseMode,
+      toolScope: conversation.toolScope,
+      aliases: conversation.aliases || [],
+      label: conversation.label,
+      username: conversation.username || '',
+      summary: conversation.summary || '',
+      sources: conversation.sources || [],
+      msgCount: conversation.msgCount || 0,
+      lastSeen: conversation.lastSeen || '',
+    });
     if (profile) {
       seeded.push({
         ...conversation,
@@ -826,41 +833,53 @@ function ensureTelegramConversationProfile(source = {}) {
   if (!conversation) return null;
   const profilePath = getTelegramProfilePath(conversation.chatId);
   if (!profilePath) return null;
+  const enriched = {
+    ...conversation,
+    username: conversation.username || source.username || source.handle || '',
+    aliases: conversation.aliases || source.aliases || source.alias || [],
+    summary: conversation.summary || source.summary || '',
+    sources: conversation.sources || source.sources || (source.source ? [source.source] : []),
+    msgCount: Number(conversation.msgCount || source.msgCount) || 0,
+    lastSeen: conversation.lastSeen || source.lastSeen || '',
+  };
   if (!fs.existsSync(profilePath)) {
-    const title = conversation.label || `Telegram ${conversation.chatId}`;
+    const title = enriched.label || `Telegram ${enriched.chatId}`;
     const now = new Date().toISOString();
+    const autofill = buildTelegramAutofillProfileSections(enriched);
     const content = `---
 channel: telegram
-chatId: ${conversation.chatId}
-entityId: ${conversation.entityId}
-chatType: ${conversation.chatType || 'unknown'}
-role: ${conversation.role}
-audience: ${conversation.audience}
-responseMode: ${conversation.responseMode}
-toolScope: ${conversation.toolScope}
-directoryKind: ${conversation.directoryKind}
+chatId: ${enriched.chatId}
+entityId: ${enriched.entityId}
+chatType: ${enriched.chatType || 'unknown'}
+role: ${enriched.role}
+audience: ${enriched.audience}
+responseMode: ${enriched.responseMode}
+toolScope: ${enriched.toolScope}
+directoryKind: ${enriched.directoryKind}
 label: ${quoteTelegramFrontMatter(title)}
-lastSeen: ${now}
-msgCount: 0
+lastSeen: ${enriched.lastSeen || now}
+msgCount: ${Number(enriched.msgCount) || 0}
 tags: []
 ---
 # ${title}
 
 ## Ho so doi tuong
-(chua co)
+${autofill.profile || '(chua co)'}
 
 ## Kien thuc rieng can nap
-(chua co)
+${autofill.knowledge || '(chua co)'}
 
 ## Luu y khi tuong tac
-(chua co)
+${autofill.interactionNotes || '(chua co)'}
 
 ---
 *Ho so duoc tao tu dong cho Telegram conversation luc ${now}.*
 `;
     try { fs.writeFileSync(profilePath, content, 'utf-8'); } catch {}
+  } else {
+    backfillTelegramConversationProfileSectionsFromScan(enriched);
   }
-  return { ...conversation, profilePath };
+  return { ...enriched, profilePath };
 }
 
 function readTelegramConversationProfile(chatId, maxChars = 2500) {
@@ -922,6 +941,111 @@ function replaceTelegramProfileSection(content, title, body) {
   const bodyEndOffset = boundaries.length ? Math.min(...boundaries) : tail.length;
   const replacement = `## ${title}\n${body}\n`;
   return raw.slice(0, headingStart) + replacement + tail.slice(bodyEndOffset);
+}
+
+function extractTelegramProfileSection(content, title) {
+  const raw = String(content || '');
+  const heading = new RegExp(`(^|\\n)## ${escapeTelegramProfileRegex(title)}\\s*\\n`, 'i');
+  const match = heading.exec(raw);
+  if (!match) return '';
+  const bodyStart = match.index + match[0].length;
+  const tail = raw.slice(bodyStart);
+  const boundaries = [
+    tail.search(/\n##\s+/),
+    tail.search(/\n---\s*\n/),
+  ].filter(index => index >= 0);
+  const bodyEndOffset = boundaries.length ? Math.min(...boundaries) : tail.length;
+  return tail.slice(0, bodyEndOffset).trim();
+}
+
+function isTelegramProfileSectionEmpty(value) {
+  const text = String(value || '').trim();
+  if (!text) return true;
+  return /^\(?\s*(chua co|chưa có|none|empty)\s*\)?$/i.test(text);
+}
+
+function buildTelegramAutofillProfileSections(source = {}) {
+  const chatId = sanitizeTelegramChatId(source.chatId || source.telegramChatId || source.targetChatId);
+  const chatType = normalizeTelegramChatType(source.chatType || source.telegramChatType || '');
+  const policy = buildTelegramConversationPolicy({
+    ...source,
+    chatType,
+    role: source.role || source.telegramRole,
+  });
+  const label = compactTelegramText(source.label || source.title || source.username || (chatId ? `Telegram ${chatId}` : ''), 160);
+  const aliases = normalizeTelegramAliases(source.aliases || source.alias || []);
+  const sources = Array.isArray(source.sources)
+    ? source.sources.map(s => compactTelegramText(s, 60)).filter(Boolean)
+    : normalizeTelegramAliases(source.source || '');
+  const summary = compactTelegramText(source.summary || '', 500);
+  const msgCount = Number(source.msgCount) || 0;
+  const lastSeen = compactTelegramText(source.lastSeen || '', 80);
+  const username = compactTelegramText(source.username || source.handle || '', 120);
+  const profileLines = [];
+  if (label) profileLines.push(`- Ten: ${label}`);
+  if (chatId) profileLines.push(`- Telegram ID: ${chatId}`);
+  if (username) profileLines.push(`- Username: ${username}`);
+  if (chatType && chatType !== 'unknown') profileLines.push(`- Loai chat: ${chatType}`);
+  profileLines.push(`- Role: ${policy.role}`);
+  profileLines.push(`- Audience: ${policy.audience}`);
+  if (policy.responseMode) profileLines.push(`- Che do phan hoi: ${policy.responseMode}`);
+  if (policy.toolScope) profileLines.push(`- Tool scope: ${policy.toolScope}`);
+  if (aliases.length) profileLines.push(`- Alias: ${aliases.join(', ')}`);
+  if (sources.length) profileLines.push(`- Nguon scan: ${sources.join(', ')}`);
+  if (msgCount > 0) profileLines.push(`- So tin da luu: ${msgCount}`);
+  if (lastSeen) profileLines.push(`- Lan thay cuoi: ${lastSeen}`);
+  if (summary) profileLines.push(`- Tom tat scan: ${summary}`);
+
+  const knowledgeLines = [];
+  if (summary || msgCount > 0 || sources.length) {
+    knowledgeLines.push('- Ho so rieng cua chat nay va lich su Telegram da scan.');
+  }
+  if (summary) knowledgeLines.push(`- Tom tat scan: ${summary}`);
+  if (sources.length) knowledgeLines.push(`- Uu tien doi chieu voi nguon scan: ${sources.join(', ')}`);
+
+  const interactionLines = [];
+  if (policy.role === 'ceo') {
+    interactionLines.push('- Telegram la kenh uu tien voi CEO; xu ly lenh dieu phoi truoc Zalo.');
+    interactionLines.push('- Tra loi ngan gon, ro buoc tiep theo, can xac nhan thi hoi lai.');
+  } else if (policy.role === 'internal') {
+    interactionLines.push('- Xu ly nhu nhom noi bo; co the dung kien thuc noi bo theo policy.');
+    interactionLines.push('- Xac nhan dung nhom/ID truoc khi gui lenh co tac dong.');
+  } else if (policy.role === 'customer') {
+    interactionLines.push('- Chi dung kien thuc public/customer; khong tiet lo noi bo.');
+    interactionLines.push('- Phan hoi than mat, gan gui, tap trung vao cham soc khach hang.');
+  } else {
+    interactionLines.push('- Chua phan loai ro; hoi lai truoc khi dung cong cu co tac dong.');
+  }
+
+  return {
+    profile: sanitizeTelegramProfileSection(profileLines.join('\n')),
+    knowledge: sanitizeTelegramProfileSection(knowledgeLines.join('\n')),
+    interactionNotes: sanitizeTelegramProfileSection(interactionLines.join('\n')),
+  };
+}
+
+function backfillTelegramConversationProfileSectionsFromScan(source = {}) {
+  try {
+    const chatId = sanitizeTelegramChatId(source.chatId || source.telegramChatId || source.targetChatId);
+    if (!chatId) return { success: false, error: 'invalid chatId' };
+    const profilePath = getTelegramProfilePath(chatId);
+    if (!profilePath || !fs.existsSync(profilePath)) return { success: false, error: 'profile not found' };
+    const autofill = buildTelegramAutofillProfileSections({ ...source, chatId });
+    let content = fs.readFileSync(profilePath, 'utf-8');
+    const changed = [];
+    for (const [key, title] of Object.entries(TELEGRAM_PROFILE_SECTION_MAP)) {
+      const current = extractTelegramProfileSection(content, title);
+      const nextBody = autofill[key];
+      if (isTelegramProfileSectionEmpty(current) && !isTelegramProfileSectionEmpty(nextBody)) {
+        content = replaceTelegramProfileSection(content, title, nextBody);
+        changed.push(key);
+      }
+    }
+    if (changed.length) fs.writeFileSync(profilePath, content, 'utf-8');
+    return { success: true, changed, path: profilePath };
+  } catch (e) {
+    return { success: false, error: e?.message || String(e) };
+  }
 }
 
 function saveTelegramConversationProfileSections(input = {}) {
@@ -1018,10 +1142,140 @@ function deleteTelegramConversationNote(input = {}) {
   }
 }
 
+function cleanTelegramKnowledgeRef(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^[-*]\s+/, '')
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .trim();
+}
+
+function parseTelegramKnowledgeRefs(sectionText = '') {
+  const refs = [];
+  for (const rawLine of String(sectionText || '').split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || /^\(?chua co\)?$/i.test(line)) continue;
+    const linkMatches = [...line.matchAll(/\[[^\]]+\]\(([^)]+)\)/g)];
+    for (const match of linkMatches) {
+      const ref = cleanTelegramKnowledgeRef(match[1]);
+      if (ref) refs.push(ref);
+    }
+    const prefixed = line.match(/^(?:[-*]\s*)?(?:file|path|knowledge)\s*:\s*(.+)$/i);
+    if (prefixed) {
+      const ref = cleanTelegramKnowledgeRef(prefixed[1]);
+      if (ref) refs.push(ref);
+      continue;
+    }
+    const bare = cleanTelegramKnowledgeRef(line);
+    if (/\.(?:md|txt|jsonl?|csv)$/i.test(bare) && !/\s{2,}/.test(bare)) refs.push(bare);
+  }
+  return [...new Set(refs)].slice(0, 20);
+}
+
+function isPathInside(root, target) {
+  if (!root || !target) return false;
+  const rel = path.relative(path.resolve(root), path.resolve(target));
+  return rel === '' || (!!rel && !rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+function getTelegramKnowledgeRoots() {
+  return [...new Set([getWorkspace(), getOpenclawAgentWorkspace()].filter(Boolean).map(p => path.resolve(p)))];
+}
+
+function resolveTelegramKnowledgeRef(ref) {
+  const cleaned = cleanTelegramKnowledgeRef(ref);
+  if (!cleaned || /^[a-z]+:\/\//i.test(cleaned)) return null;
+  const roots = getTelegramKnowledgeRoots();
+  const candidates = path.isAbsolute(cleaned)
+    ? [path.resolve(cleaned)]
+    : roots.map(root => path.resolve(root, cleaned));
+  for (const candidate of candidates) {
+    if (!roots.some(root => isPathInside(root, candidate))) continue;
+    const ext = path.extname(candidate).toLowerCase();
+    if (!TELEGRAM_KNOWLEDGE_ALLOWED_EXTENSIONS.has(ext)) continue;
+    try {
+      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
+    } catch {}
+  }
+  return null;
+}
+
+function isTelegramKnowledgeBlockedForRole(filePath, ref, conversation = {}) {
+  const role = normalizeTelegramRole(conversation.role || conversation.telegramRole, conversation.chatType || conversation.telegramChatType);
+  const haystack = `/${String(ref || '').replace(/\\/g, '/')}/${String(filePath || '').replace(/\\/g, '/')}`.toLowerCase();
+  if (role === 'customer' && /\/(noi-bo|internal|ceo-only|ceo|private-internal)(\/|$)/i.test(haystack)) {
+    return 'blocked_internal_scope_for_customer';
+  }
+  return '';
+}
+
+function readTelegramKnowledgeFile(filePath, remainingChars) {
+  const stat = fs.statSync(filePath);
+  if (stat.size > TELEGRAM_KNOWLEDGE_MAX_FILE_BYTES) {
+    const err = new Error('file too large');
+    err.code = 'file_too_large';
+    throw err;
+  }
+  const raw = fs.readFileSync(filePath, 'utf-8')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+    .trim();
+  return raw.slice(0, Math.max(1, Number(remainingChars) || 1));
+}
+
+function loadTelegramProfileKnowledgeContext({ conversation = {}, profile = null, maxFiles = 5, maxChars = 4000 } = {}) {
+  const content = typeof profile === 'string' ? profile : (profile?.content || '');
+  const section = extractTelegramProfileSection(content, TELEGRAM_PROFILE_SECTION_MAP.knowledge);
+  const refs = parseTelegramKnowledgeRefs(section);
+  const items = [];
+  const blocked = [];
+  const errors = [];
+  let remaining = Math.max(200, Number(maxChars) || 4000);
+  for (const ref of refs) {
+    if (items.length >= Math.max(1, Number(maxFiles) || 5)) break;
+    const resolved = resolveTelegramKnowledgeRef(ref);
+    if (!resolved) {
+      errors.push({ ref, error: 'not_found_or_not_allowed' });
+      continue;
+    }
+    const blockReason = isTelegramKnowledgeBlockedForRole(resolved, ref, conversation);
+    if (blockReason) {
+      blocked.push({ ref, path: resolved, reason: blockReason });
+      continue;
+    }
+    try {
+      const body = readTelegramKnowledgeFile(resolved, remaining);
+      if (!body) continue;
+      items.push({
+        ref,
+        path: resolved,
+        chars: body.length,
+        content: body,
+      });
+      remaining -= body.length;
+      if (remaining <= 0) break;
+    } catch (e) {
+      errors.push({ ref, path: resolved, error: e?.code || e?.message || String(e) });
+    }
+  }
+  return {
+    section,
+    refs,
+    items,
+    blocked,
+    errors,
+  };
+}
+
 async function buildTelegramMemoryContext(source = {}) {
   const conversation = ensureTelegramConversationProfile(source);
   if (!conversation) return null;
-  const profile = readTelegramConversationProfile(conversation.chatId, source.profileMaxChars || 1800);
+  const profile = readTelegramConversationProfile(conversation.chatId, source.profileMaxChars || 6000);
+  const privateKnowledge = loadTelegramProfileKnowledgeContext({
+    conversation,
+    profile,
+    maxFiles: source.knowledgeMaxFiles || 5,
+    maxChars: source.knowledgeMaxChars || 4000,
+  });
   const { getMemoryContext } = require('./ceo-memory');
   const memory = await getMemoryContext({
     query: [conversation.label, source.query, source.body, source.prompt].filter(Boolean).join('\n'),
@@ -1035,6 +1289,7 @@ async function buildTelegramMemoryContext(source = {}) {
   return {
     conversation,
     profile,
+    privateKnowledge,
     memory,
     inboundContext: buildTelegramInboundContext({
       conversation,
@@ -1064,6 +1319,16 @@ function formatTelegramMemoryPromptBlock(ctx) {
       policy: ctx.conversation.policy || null,
     },
     profile: ctx.profile ? ctx.profile.content : '',
+    privateKnowledge: ctx.privateKnowledge ? {
+      items: (ctx.privateKnowledge.items || []).map(item => ({
+        ref: item.ref,
+        path: item.path,
+        chars: item.chars,
+        content: item.content,
+      })),
+      blocked: ctx.privateKnowledge.blocked || [],
+      errors: ctx.privateKnowledge.errors || [],
+    } : { items: [], blocked: [], errors: [] },
     inboundContext: ctx.inboundContext || null,
     inboundContextBlock: ctx.inboundContext ? formatTelegramInboundContextBlock(ctx.inboundContext) : '',
     memories: (ctx.memory?.memories || []).map(m => ({
@@ -1116,6 +1381,9 @@ module.exports = {
   resolveTelegramConversation,
   ensureTelegramConversationProfile,
   readTelegramConversationProfile,
+  buildTelegramAutofillProfileSections,
+  backfillTelegramConversationProfileSectionsFromScan,
+  loadTelegramProfileKnowledgeContext,
   saveTelegramConversationProfileSections,
   appendTelegramConversationNote,
   deleteTelegramConversationNote,

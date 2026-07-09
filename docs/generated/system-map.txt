@@ -2,8 +2,8 @@
 
 Counts
 - apiRoutes: 90
-- ipcHandlers: 235
-- preloadBridges: 228
+- ipcHandlers: 236
+- preloadBridges: 229
 - dashboardPages: 21
 - capabilityContracts: 3
 
@@ -128,8 +128,8 @@ Dashboard Pages
 - zalo-behavior
 
 Large Source Files
-- electron/ui/dashboard.html: 805165 bytes
-- electron/lib/dashboard-ipc.js: 320575 bytes
+- electron/ui/dashboard.html: 809649 bytes
+- electron/lib/dashboard-ipc.js: 321210 bytes
 - electron/lib/license.js: 187389 bytes
 - electron/lib/cron-api.js: 186731 bytes
 - electron/lib/cron.js: 133310 bytes
@@ -137,8 +137,8 @@ Large Source Files
 - electron/lib/knowledge.js: 96863 bytes
 - electron/lib/channels.js: 96705 bytes
 - electron/lib/fb-schedule.js: 94418 bytes
-- electron/lib/vendor-patches.js: 85339 bytes
-- electron/lib/gateway.js: 84512 bytes
+- electron/lib/vendor-patches.js: 92456 bytes
+- electron/lib/gateway.js: 89963 bytes
 - electron/lib/runtime-installer.js: 75692 bytes
 - electron/ui/preview-telegram-redesign.html: 66621 bytes
 - electron/lib/workspace.js: 66407 bytes
@@ -146,5 +146,5 @@ Large Source Files
 - electron/lib/config.js: 61710 bytes
 - electron/lib/fb-publisher.js: 57530 bytes
 - electron/lib/nine-router.js: 52447 bytes
+- electron/lib/telegram-memory.js: 52039 bytes
 - electron/lib/google-routes.js: 45145 bytes
-- electron/lib/skill-manager.js: 45003 bytes

@@ -45,6 +45,7 @@ async function run() {
     const telegramMemorySrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'telegram-memory.js'), 'utf-8');
     const vendorPatchSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'vendor-patches.js'), 'utf-8');
     const dashboardSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'dashboard-ipc.js'), 'utf-8');
+    const gatewaySrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'gateway.js'), 'utf-8');
     const preloadSrc = fs.readFileSync(path.join(__dirname, '..', 'preload.js'), 'utf-8');
     const uiSrc = fs.readFileSync(path.join(__dirname, '..', 'ui', 'dashboard.html'), 'utf-8');
     const agentsSrc = fs.readFileSync(path.join(__dirname, '..', '..', 'AGENTS.md'), 'utf-8');
@@ -325,6 +326,110 @@ async function run() {
         && missingAfter.indexOf('\n---\n*Ho so duoc tao tu dong') < missingAfter.indexOf('## CEO notes'),
         JSON.stringify({ missingSaved, content: missingAfter }));
     }
+    assert('telegram profile scan autofill helpers are exported',
+      typeof tg.buildTelegramAutofillProfileSections === 'function'
+      && typeof tg.backfillTelegramConversationProfileSectionsFromScan === 'function',
+      'missing Telegram profile scan autofill helpers');
+    if (typeof tg.buildTelegramAutofillProfileSections === 'function' && typeof tg.backfillTelegramConversationProfileSectionsFromScan === 'function') {
+      const autoPath = tg.getTelegramProfilePath('-1006666666666');
+      try { if (autoPath && fs.existsSync(autoPath)) fs.unlinkSync(autoPath); } catch {}
+      const autoProfile = tg.ensureTelegramConversationProfile({
+        telegramChatId: '-1006666666666',
+        telegramChatType: 'supergroup',
+        role: 'customer',
+        label: 'VIP Customer Group',
+        aliases: ['VIP-2026', 'VIP'],
+        summary: 'Khach mua goi premium va can cham soc gan gui.',
+        sources: ['provider-cache', 'runtime-logs'],
+        msgCount: 42,
+        lastSeen: '2026-07-09T10:00:00.000Z',
+      });
+      const autoContent = tg.readTelegramConversationProfile('-1006666666666', 12000)?.content || '';
+      assert('telegram profile auto-fills empty sections from scan metadata',
+        autoProfile?.profilePath
+        && autoContent.includes('VIP Customer Group')
+        && autoContent.includes('Tom tat scan: Khach mua goi premium')
+        && autoContent.includes('Nguon scan: provider-cache, runtime-logs')
+        && autoContent.includes('So tin da luu: 42')
+        && autoContent.includes('Chi dung kien thuc public/customer')
+        && !autoContent.includes('## Ho so doi tuong\n(chua co)'),
+        JSON.stringify({ autoContent }));
+      tg.saveTelegramConversationProfileSections({
+        chatId: '-1006666666666',
+        chatType: 'supergroup',
+        role: 'customer',
+        label: 'VIP Customer Group',
+        sections: {
+          profile: 'Manual profile must stay.',
+        },
+      });
+      tg.backfillTelegramConversationProfileSectionsFromScan({
+        telegramChatId: '-1006666666666',
+        telegramChatType: 'supergroup',
+        role: 'customer',
+        label: 'VIP Customer Group',
+        summary: 'New scan should not override manual profile.',
+      });
+      const manualAfter = tg.readTelegramConversationProfile('-1006666666666', 12000)?.content || '';
+      assert('telegram profile auto-fill preserves manual profile sections',
+        manualAfter.includes('## Ho so doi tuong\nManual profile must stay.')
+        && !manualAfter.includes('New scan should not override manual profile'),
+        manualAfter);
+    }
+    assert('telegram private knowledge loader helper is exported',
+      typeof tg.loadTelegramProfileKnowledgeContext === 'function',
+      'missing Telegram private knowledge loader helper');
+    if (typeof tg.loadTelegramProfileKnowledgeContext === 'function') {
+      const publicKnowledgePath = path.join(tmp, 'knowledge', 'telegram', 'public', 'vip-playbook.md');
+      const internalKnowledgePath = path.join(tmp, 'knowledge', 'telegram', 'noi-bo', 'internal-playbook.md');
+      fs.mkdirSync(path.dirname(publicKnowledgePath), { recursive: true });
+      fs.mkdirSync(path.dirname(internalKnowledgePath), { recursive: true });
+      fs.writeFileSync(publicKnowledgePath, 'VIP public playbook: uu tien giai thich ngan gon va ro buoc tiep theo.', 'utf-8');
+      fs.writeFileSync(internalKnowledgePath, 'Internal-only playbook: khong bao gio nap cho khach hang.', 'utf-8');
+      tg.saveTelegramConversationProfileSections({
+        chatId: '-1006666666666',
+        chatType: 'supergroup',
+        role: 'customer',
+        label: 'VIP Customer Group',
+        sections: {
+          knowledge: [
+            'file: knowledge/telegram/public/vip-playbook.md',
+            'file: knowledge/telegram/noi-bo/internal-playbook.md',
+          ].join('\n'),
+        },
+      });
+      const knowledgeConversation = tg.resolveTelegramConversation({
+        telegramChatId: '-1006666666666',
+        telegramChatType: 'supergroup',
+        role: 'customer',
+        label: 'VIP Customer Group',
+      });
+      const knowledgeProfile = tg.readTelegramConversationProfile('-1006666666666', 12000);
+      const loadedKnowledge = tg.loadTelegramProfileKnowledgeContext({
+        conversation: knowledgeConversation,
+        profile: knowledgeProfile,
+        maxChars: 4000,
+      });
+      assert('telegram private knowledge loader loads public refs and blocks internal refs for customers',
+        loadedKnowledge?.items?.some(item => item.content.includes('VIP public playbook'))
+        && !loadedKnowledge?.items?.some(item => item.content.includes('Internal-only playbook'))
+        && loadedKnowledge?.blocked?.some(item => /noi-bo|internal/i.test(item.ref || item.path || '')),
+        JSON.stringify(loadedKnowledge));
+      const memoryContext = await tg.buildTelegramMemoryContext({
+        telegramChatId: '-1006666666666',
+        telegramChatType: 'supergroup',
+        role: 'customer',
+        label: 'VIP Customer Group',
+        query: 'can nap kien thuc rieng',
+        limit: 1,
+      });
+      const promptBlock = tg.formatTelegramMemoryPromptBlock(memoryContext);
+      assert('telegram memory prompt includes scoped private knowledge content',
+        promptBlock.includes('VIP public playbook')
+        && !promptBlock.includes('Internal-only playbook')
+        && promptBlock.includes('privateKnowledge'),
+        promptBlock);
+    }
     assert('telegram entity id is stable', tg.telegramEntityId('-1003857797941') === 'telegram:-1003857797941');
     assert('telegram memory discovers OpenClaw session metadata',
       telegramMemorySrc.includes('collectOpenclawSessionCandidates')
@@ -536,6 +641,11 @@ async function run() {
       && vendorPatchSrc.includes('telegram-provider-timeout')
       && vendorPatchSrc.includes('providerTimeoutSettled'),
       'missing Telegram provider timeout guard patch');
+    assert('startup launches gateway without blocking on 9Router model warmup',
+      gatewaySrc.includes('BOOT_FAST_GATEWAY_SPAWN_MARKER')
+      && gatewaySrc.includes('schedule9RouterPostReadyWarmup')
+      && gatewaySrc.includes('gateway spawn does not await 9Router /v1/models'),
+      'gateway startup still lacks non-blocking 9Router post-ready warmup marker');
     const approvalLeak = channels.filterSensitiveOutput([
       'Approval required.',
       'Run:',
