@@ -165,3 +165,12 @@ Commit with message: `Add Telegram private conversation notes`.
   - `npm.cmd run map:check`
   - `node scripts/check-dashboard-ux-qol.js`
   - `npm.cmd run guard:architecture`
+- 2026-07-09: Full build PASS with `LOCAL_UNSIGNED_BUILD=1 npm.cmd run build:win`.
+- 2026-07-09: Installed unsigned build into `C:\Users\bao.nguyen\AppData\Local\Programs\9bizclaw` after backing up the previous install to `C:\Users\bao.nguyen\AppData\Local\Programs\9bizclaw-backup-20260709-telegram-private-notes`.
+- 2026-07-09: Live runtime checks PASS:
+  - App processes are running and ports `18789`, `20128`, `20129`, `20200` are listening.
+  - Authenticated `GET /api/telegram/profile?name=LLK` returns `targetChatId=-1003857797941`, `role=internal`, `toolScope=internal`, and profile path `C:\Users\bao.nguyen\AppData\Roaming\9bizclaw\memory\telegram-chats\-1003857797941.md`.
+  - Telegram private note append/delete helper was tested against the real LLK profile with a temporary marker; marker appeared after append and was absent after delete.
+  - Installed `app.asar` contains `appendTelegramConversationNote`, `deleteTelegramConversationNote`, `append-telegram-conversation-note`, and `CEO notes`.
+- 2026-07-09: Git lesson saved in `.learnings/LEARNINGS.md`: use the writable `fork` remote for this repo; direct push to read-only upstream `origin` returns GitHub 403.
+- 2026-07-09: Runtime log review found no new Telegram profile/note errors. Residual operational warning: Zalo plugin is configured disabled (`channels.modoro-zalo.enabled=false`, `plugins.entries.modoro-zalo.enabled=false`), which is outside this Telegram private-notes change.
