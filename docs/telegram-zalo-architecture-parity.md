@@ -64,6 +64,7 @@ Kết luận: hiệu quả chính đến từ việc filter trước khi scoring
 | Outbound capture | `sendTelegram`/`sendTelegramPhoto` lưu message ref thật sau khi Telegram API trả `message_id` | Đã thêm foundation |
 | Memory tầng Telegram | `memory/telegram-users/<userId>.md`, `memory/telegram-groups/<chatId>.md`, giữ `memory/telegram-chats/<chatId>.md` để tương thích; directory scanner đọc cả 3 tầng | Đã thêm foundation |
 | UI quản lý conversation | Tab Telegram có bảng 2 cột Group/Channel và Private/CEO/DM, bộ lọc riêng từng cột, nút xem hồ sơ, role select, responseMode select và bật/tắt/bulk action theo conversation | Đã thêm foundation |
+| Hồ sơ định danh/alias trên UI | Modal hồ sơ Telegram cho sửa tên định danh, alias tìm kiếm, role, responseMode và bật/tắt ngay tại nơi xem memory | Đã thêm foundation |
 | Ghi chú riêng/chân dung đối tượng | Dashboard Telegram có thể append/delete `## CEO notes` trong hồ sơ conversation; ghi chú này không gửi cho người dùng nhưng được nạp lại qua profile context | Đã thêm foundation |
 | Seed danh sách conversation | `telegram-memory.js` đọc `openclaw.json`, `custom-crons.json`, log/cache Telegram và profile đã có để seed `memory/telegram-chats/<chatId>.md` | Đã thêm nền tảng |
 | Directory/cache Telegram | `electron/lib/telegram-directory.js`, `telegram-directory.json`, `/api/telegram/directory`, `/api/telegram/directory/refresh` | Đã thêm nền tảng |
@@ -90,7 +91,7 @@ Kết luận: hiệu quả chính đến từ việc filter trước khi scoring
 
 ## Trạng thái full parity
 
-Bản 2026-07-08 mới đạt nền tảng parity ở routing, API lookup/send, profile conversation, policy foundation, directory/cache foundation, inbound context foundation, session binding foundation, message refs foundation, runtime capture foundation, outbound capture hook và UI 2 cột foundation như Zalo. Bản 2026-07-09 bổ sung thêm lớp ghi chú riêng/chân dung đối tượng cho Telegram profile, tương đương giá trị cốt lõi của ô "Ghi chú riêng về khách hàng này" bên Zalo. Telegram vẫn chưa đạt full parity với Zalo vì còn thiếu channel spine riêng, provider hook inbound thật sự, member/topic cache, history archive định kỳ, UI nhập/sửa alias/member/topic chi tiết và kiểm thử runtime sau build.
+Bản 2026-07-08 mới đạt nền tảng parity ở routing, API lookup/send, profile conversation, policy foundation, directory/cache foundation, inbound context foundation, session binding foundation, message refs foundation, runtime capture foundation, outbound capture hook và UI 2 cột foundation như Zalo. Bản 2026-07-09 bổ sung thêm lớp ghi chú riêng/chân dung đối tượng cho Telegram profile, tương đương giá trị cốt lõi của ô "Ghi chú riêng về khách hàng này" bên Zalo. Cùng ngày, modal hồ sơ Telegram được nâng lên thành bề mặt chỉnh định danh: sửa label, alias, role, responseMode và bật/tắt mà không cần sửa JSON. Telegram vẫn chưa đạt full parity với Zalo vì còn thiếu channel spine riêng, provider hook inbound thật sự, member/topic cache, history archive định kỳ, UI nhập/sửa member/topic chi tiết và kiểm thử runtime sau build.
 
 Plan triển khai triệt để nằm ở `docs/plans/2026-07-08-telegram-zalo-full-parity-architecture.md`.
 
@@ -103,6 +104,7 @@ Telegram đã được mô phỏng theo Zalo ở bốn lớp:
 3. Lớp runtime capture: outbound Telegram thật cập nhật directory, session binding, message refs và profile tầng user/group.
 4. Lớp quản trị Dashboard: bảng Telegram 2 cột Group/Channel và Private/CEO/DM, role CEO/nội bộ/khách/chưa rõ, responseMode, bật/tắt, bulk action, xem hồ sơ riêng và seed hồ sơ từ dữ liệu runtime đang có.
 5. Lớp chân dung riêng: CEO có thể ghi chú riêng trong hồ sơ Telegram conversation để agent hiểu sắc thái chăm sóc, ưu tiên, bối cảnh và lưu ý tương tác của từng người/nhóm.
+6. Lớp định danh vận hành: CEO có thể chỉnh label và alias trong modal hồ sơ để BOT tìm đúng nhóm/người theo tên gọi tự nhiên, không rơi ngược sang cache Zalo.
 
 Từ bản cập nhật 2026-07-08, Telegram còn có thêm lớp điều phối API giống Zalo:
 
@@ -146,5 +148,6 @@ Kiến trúc memory phân tầng của Zalo thật sự tối ưu ở 4 điểm:
 - 2026-07-09: Runtime verify PASS: `telegram-fast-role-lookup: applied`, 4 cổng `18789/20128/20129/20200` listen, `/api/telegram/profile?name=LLK` trả `role=internal`, cron `name=LLK` + `X-Source-Channel: telegram` resolve đúng `targetChatId=-1003857797941`
 - Artifact mới: `O:\project\9bizclaw\artifacts\9BizClaw Setup 2.4.23-telegram-fast-role-unsigned-20260709.exe`
 - 2026-07-09: Source guard Telegram private notes PASS: `node --check electron/lib/telegram-memory.js`, `node --check electron/lib/dashboard-ipc.js`, `node --check electron/preload.js`, `node electron/scripts/check-telegram-memory-contract.js`.
+- 2026-07-09: Source guard Telegram profile controls PASS: alias settings được normalize thành mảng, modal hồ sơ có `tg-profile-label`, `tg-profile-aliases`, `tg-profile-role`, `tg-profile-response-mode`, `tg-profile-enabled`, `saveTelegramConversationProfileSettings`; `node electron/scripts/check-telegram-memory-contract.js` PASS.
 
 Ghi chú: smoke trong source worktree trên ổ `O:` còn đỏ nếu `electron/vendor` chưa extract đủ `9router`/`modoro-zalo`; sandbox local đã có vendor bundle đầy đủ nên dùng để xác nhận build/package.

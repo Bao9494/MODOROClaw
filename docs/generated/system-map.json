@@ -3000,7 +3000,7 @@
   "largeSourceFiles": [
     {
       "path": "electron/ui/dashboard.html",
-      "bytes": 797164
+      "bytes": 805165
     },
     {
       "path": "electron/lib/dashboard-ipc.js",
@@ -3092,7 +3092,7 @@
     },
     {
       "path": "electron/lib/telegram-memory.js",
-      "bytes": 36675
+      "bytes": 36930
     },
     {
       "path": "electron/lib/ceo-memory.js",

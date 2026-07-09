@@ -144,3 +144,13 @@ Commit with message `Improve Telegram Zalo parity profile controls`, then `git p
 ## Execution Log
 
 - 2026-07-09: Plan created after confirming the worktree is isolated and clean on branch `telegram-private-notes-20260709`.
+- 2026-07-09: Task 1 RED/GREEN complete. Guard failed when raw settings stored aliases as a string, then passed after `saveTelegramConversationSettings()` and `writeTelegramConversationSettings()` normalized aliases to arrays.
+- 2026-07-09: Task 2 RED/GREEN complete. Guard failed before the Telegram profile modal exposed editable identity/policy controls, then passed after adding label, alias, role, responseMode, enabled, and `saveTelegramConversationProfileSettings()`.
+- 2026-07-09: Focused verification PASS:
+  - `node --check electron/lib/telegram-memory.js`
+  - `node --check electron/preload.js`
+  - `node --check electron/lib/dashboard-ipc.js`
+  - `node electron/scripts/check-telegram-memory-contract.js`
+  - `node scripts/check-dashboard-ux-qol.js`
+  - `npm.cmd run map:check`
+- 2026-07-09: Runtime smoke PASS: authenticated `GET /api/telegram/profile?name=LLK` returns `targetChatId=-1003857797941`, `role=internal`, `responseMode=mention`, `toolScope=internal`, `hasProfile=true`.
