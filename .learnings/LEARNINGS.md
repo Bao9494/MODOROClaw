@@ -31,3 +31,11 @@ Promoted entries đã được đưa vào AGENTS.md và không cần đọc lạ
 - L-003 (cron/verification): Verify sau khi ghi file cron → promoted vào "Lịch tự động & Nhắc nhở"
 - L-004 (cron/fixed-schedules): 2 file cron (schedules.json + custom-crons.json) → promoted vào "Lịch tự động"
 - L-005 (cron/status-check): Không chạy CLI `openclaw cron list`, đọc file trực tiếp → promoted vào "CẤM TUYỆT ĐỐI" + "Khi cron không chạy đúng giờ"
+
+---
+
+### [2026-07-09] ID: L-007 | Area: git/fork-upstream | Priority: high
+**Tình huống:** Push feature branch vào `origin` bị GitHub 403 dù token có `repo` scope.
+**Sai lầm:** Mặc định push vào `origin` trong khi `origin` là upstream `modoro-digital/MODOROClaw` và account `Bao9494` chỉ có quyền READ. Remote có quyền ghi là `fork` (`Bao9494/MODOROClaw`).
+**Bài học:** Với repo có upstream/fork, trước khi push phải kiểm `git status -sb`, `git remote -v`, và upstream branch. Push feature bằng `git push` nếu branch đang track `fork/...`, hoặc rõ ràng `git push fork HEAD`. Không dùng `git push origin HEAD` trừ khi viewerPermission của repo gốc có quyền ghi. PR dùng head `Bao9494:<branch>` sang base `modoro-digital:main`.
+**Trạng thái:** active
