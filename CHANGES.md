@@ -4,6 +4,29 @@
 
 ---
 
+## 2026-07-09
+
+### Telegram fast role lookup and source-scoped cron name routing
+
+**File(s):** `electron/lib/vendor-patches.js`, `electron/lib/cron-api.js`, `electron/scripts/check-telegram-memory-contract.js`, `docs/plans/2026-07-08-telegram-zalo-full-parity-architecture.md`, `docs/telegram-zalo-architecture-parity.md`
+
+**Root cause:** Runtime test cho thấy câu hỏi "nhóm LLK-999999 đang là nội bộ hay khách hàng" trả lời được nhưng mất khoảng 46 giây. Session log xác nhận Telegram dispatch/gửi tin chỉ mất khoảng 0.5-1 giây; phần chậm nằm ở agent đi vòng qua nhiều tool call: đọc skill bằng lệnh shell sai kiểu Linux, lỗi encoding, đọc cả skill file, gọi sai `chatId=-100LLK-999999`, rồi mới gọi đúng API lookup. Đồng thời `/api/cron/create` có `X-Source-Channel: telegram` nhưng chỉ truyền `name=LLK` vẫn có thể rơi khỏi nhánh Telegram nếu không có `channel=telegram` hoặc `targetChatId`.
+
+**Fix/Change:**
+- Thêm vendor patch `20260709-fast-telegram-role-lookup-v1` để các câu hỏi phân loại role Telegram như nội bộ/khách hàng/role/vai trò được trả lời bằng lookup cục bộ từ `telegram-conversation-settings.json` và `memory/telegram-chats`, không cần LLM/tool loop dài.
+- Cho cron Telegram resolver đọc `X-Source-Channel: telegram` như một source hint hợp lệ, để `name=LLK` trong ngữ cảnh Telegram được scope sang Telegram trước Zalo.
+- Mở rộng contract test để bắt regression fast-role patch, cron source header, và sửa nhánh skip `better-sqlite3` để assertion fail vẫn trả exit code 1.
+
+**Verification:** Đã chạy red-green contract: test mới fail đúng hai điểm trước khi sửa, sau đó `node --check` cho `vendor-patches.js`, `cron-api.js`, `check-telegram-memory-contract.js` PASS; `node electron/scripts/check-telegram-memory-contract.js` PASS phần static/layered contract; `npm.cmd run guard:architecture` PASS; `LOCAL_UNSIGNED_BUILD=1 npm.cmd run build:win` PASS; `node scripts/check-obfuscation-residue.js` PASS sau build. Runtime DB filtering vẫn skip trong source clone vì `better-sqlite3` ABI khác Node hiện tại.
+
+**Artifact:** `O:\project\9bizclaw\artifacts\9BizClaw Setup 2.4.23-telegram-fast-role-unsigned-20260709.exe`, SHA256 `2ABEC8DE453DE8FFB54EDF59C39AC061610850C014F8BF907CC91D75B0D54558`.
+
+**Runtime install/verify:** Đã backup bản cài cũ tại `C:\Users\bao.nguyen\AppData\Local\Programs\9bizclaw-backup-20260709-telegram-fast-role`, copy `dist\win-unpacked` vào `C:\Users\bao.nguyen\AppData\Local\Programs\9bizclaw`, restart app. Runtime log xác nhận `telegram-fast-role-lookup: applied`; gateway `18789`, router `20128`, knowledge `20129`, cron API `20200` đều listen. `/api/telegram/profile?name=LLK` trả `targetChatId=-1003857797941`, `role=internal`, `toolScope=internal`. Cron smoke dùng `name=LLK` + `X-Source-Channel: telegram` tạo đúng prompt `exec: telegram msg send -1003857797941 ...`; cron smoke đã xóa ngay sau test. Helper fast-role trong vendor runtime trả đúng `{chatId:-1003857797941, role:internal, chatType:supergroup}`.
+
+**State:** Source fix, build unsigned, install runtime và smoke runtime đã xong. E2E inbound Telegram thật cần CEO gửi lại một câu role để đo log `fast-telegram-role-lookup` trên update thật.
+
+---
+
 ## 2026-07-08
 
 ### Telegram append-only history archive

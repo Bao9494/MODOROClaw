@@ -42,6 +42,7 @@ async function run() {
     const sacredDataSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'sacred-data.js'), 'utf-8');
     const memorySrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'ceo-memory.js'), 'utf-8');
     const telegramMemorySrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'telegram-memory.js'), 'utf-8');
+    const vendorPatchSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'vendor-patches.js'), 'utf-8');
     const dashboardSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'dashboard-ipc.js'), 'utf-8');
     const preloadSrc = fs.readFileSync(path.join(__dirname, '..', 'preload.js'), 'utf-8');
     const uiSrc = fs.readFileSync(path.join(__dirname, '..', 'ui', 'dashboard.html'), 'utf-8');
@@ -316,6 +317,13 @@ async function run() {
       cronApiSrc.includes('resolveOptionalTelegramTargetForCron')
       && cronApiSrc.includes("'exec: telegram msg send '"),
       'missing Telegram cron target resolver or safe exec prompt');
+    assert('cron-api honors Telegram source header for name-based cron target lookup',
+      cronApiSrc.includes('hasTelegramTargetHintForCron(params = {}, headers = {})')
+      && cronApiSrc.includes('scopedTelegramCronParams(params = {}, headers = {})')
+      && cronApiSrc.includes("headers['x-source-channel']")
+      && cronApiSrc.includes('hasTelegramTargetHintForCron(params, headers)')
+      && cronApiSrc.includes('scopedTelegramCronParams(params, headers)'),
+      'Telegram cron resolver ignores source-channel headers');
     assert('cron safe exec supports Telegram send',
       cronSrc.includes('parseSafeTelegramMsgSend')
       && cronSrc.includes('safe-telegram'),
@@ -353,6 +361,12 @@ async function run() {
       && memoryIndexSrc.includes('Telegram role là `customer`'),
       'MEMORY.md missing Telegram profile routing');
 
+    assert('Telegram fast role lookup vendor patch exists',
+      vendorPatchSrc.includes('20260709-fast-telegram-role-lookup-v1')
+      && vendorPatchSrc.includes('try9BizClawTelegramRoleLookupFastPath')
+      && vendorPatchSrc.includes('fast-telegram-role-lookup'),
+      'missing Telegram fast role lookup patch');
+
     let hasUsableSqlite = true;
     try {
       const Database = require('better-sqlite3');
@@ -363,6 +377,7 @@ async function run() {
       console.warn('[SKIP] better-sqlite3 native binding unavailable in this source clone; runtime DB filtering assertions skipped:', e && e.message ? e.message : e);
     }
     if (!hasUsableSqlite) {
+      if (failures) process.exit(1);
       console.log('[telegram-memory-contract] PASS static layered Telegram memory contract');
       return;
     }

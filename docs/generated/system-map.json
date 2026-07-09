@@ -2994,7 +2994,7 @@
     },
     {
       "path": "electron/lib/cron-api.js",
-      "bytes": 183930
+      "bytes": 184128
     },
     {
       "path": "electron/lib/cron.js",
@@ -3021,12 +3021,12 @@
       "bytes": 84512
     },
     {
-      "path": "electron/lib/runtime-installer.js",
-      "bytes": 75692
+      "path": "electron/lib/vendor-patches.js",
+      "bytes": 82721
     },
     {
-      "path": "electron/lib/vendor-patches.js",
-      "bytes": 74829
+      "path": "electron/lib/runtime-installer.js",
+      "bytes": 75692
     },
     {
       "path": "electron/ui/preview-telegram-redesign.html",

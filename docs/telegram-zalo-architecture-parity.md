@@ -1,7 +1,7 @@
 # Đối chiếu kiến trúc Zalo sang Telegram
 
 Ngày rà: 2026-07-01
-Cập nhật: 2026-07-08 — Telegram được nâng lên kênh ưu tiên, thêm API lookup/send/profile/seed, cron Telegram safe exec và appointment target theo `targetChatId`.
+Cập nhật: 2026-07-09 — Telegram được nâng lên kênh ưu tiên, thêm API lookup/send/profile/seed, cron Telegram safe exec, appointment target theo `targetChatId`, fast role lookup và cron source header cho request đến từ Telegram.
 
 ## Phạm vi
 
@@ -51,8 +51,10 @@ Kết luận: hiệu quả chính đến từ việc filter trước khi scoring
 | Resolver khi cron fire | `cron.js` ưu tiên `explicitTarget` → `replyChatId` → `originChatId` | Đã thêm |
 | Outbound gửi đúng target | `channels.js` cho `sendTelegram(text, { targetChatId })` | Đã thêm |
 | Lookup chat/group theo tên | `/api/telegram/conversations?name=...&autoMode=1` dùng `findTelegramConversations()` | Đã thêm |
+| Fast role lookup theo tên/alias | `vendor-patches.js` trả lời nhanh câu hỏi nội bộ/khách hàng/role từ settings + memory Telegram trước khi vào LLM loop | Đã thêm |
 | API gửi Telegram theo tên/ID | `/api/telegram/send`, `/api/telegram/send-photo`, `/api/telegram/profile`, `/api/telegram/seed` | Đã thêm |
 | Cron fixed Telegram không qua LLM | `cron-api.js` tạo `exec: telegram msg send <chatId> "<text>"`; `cron.js` chạy safe exec | Đã thêm |
+| Cron Telegram giữ đúng source khi chỉ có `name` | `cron-api.js` đọc `X-Source-Channel: telegram` để scope `name/groupName/chatName` sang Telegram trước Zalo | Đã thêm |
 | Appointment push target Telegram | `appointments.js` dùng `pushTargets[].toId` làm `targetChatId` | Đã thêm |
 | Memory injection khi cron Telegram chạy | `cron.js` nạp `<telegram-conversation-context>` nếu job có `telegramTarget` | Đã thêm |
 | Inbound context foundation | `electron/lib/telegram-inbound-context.js` đóng gói conversation/sender/thread/message/policy để nhúng vào memory prompt block | Đã thêm nền tảng |
@@ -137,5 +139,9 @@ Kiến trúc memory phân tầng của Zalo thật sự tối ưu ở 4 điểm:
 - Sandbox local: `npm.cmd run smoke` PASS
 - Sandbox local: unsigned Windows installer build PASS
 - Artifact: `O:\project\9bizclaw\artifacts\9BizClaw Setup 2.4.23-telegram-parity-unsigned-20260708.exe`
+- 2026-07-09: `npm.cmd run guard:architecture` PASS sau fast role/header fix
+- 2026-07-09: unsigned Windows installer build PASS, installed runtime PASS
+- 2026-07-09: Runtime verify PASS: `telegram-fast-role-lookup: applied`, 4 cổng `18789/20128/20129/20200` listen, `/api/telegram/profile?name=LLK` trả `role=internal`, cron `name=LLK` + `X-Source-Channel: telegram` resolve đúng `targetChatId=-1003857797941`
+- Artifact mới: `O:\project\9bizclaw\artifacts\9BizClaw Setup 2.4.23-telegram-fast-role-unsigned-20260709.exe`
 
 Ghi chú: smoke trong source worktree trên ổ `O:` còn đỏ nếu `electron/vendor` chưa extract đủ `9router`/`modoro-zalo`; sandbox local đã có vendor bundle đầy đủ nên dùng để xác nhận build/package.

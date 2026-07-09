@@ -1091,6 +1091,131 @@ function ensureTelegramFastIdLookupPatch(vendorDir, homeDir) {
   console.warn('[openclaw-latency] telegram-fast-id-lookup: no telegram bot dist file found');
 }
 
+function ensureTelegramFastRoleLookupPatch(vendorDir, homeDir) {
+  const distDir = _getOpenclawDistDir(vendorDir);
+  if (!distDir) return;
+  const files = fs.readdirSync(distDir).filter(f => f.startsWith('bot-') && f.endsWith('.js'));
+  const MARKER = '20260709-fast-telegram-role-lookup-v1';
+  const helperAnchor = 'const dispatchTelegramMessage = async ({ context, bot, cfg, runtime, replyToMode, streamMode, textLimit, telegramCfg, telegramDeps = defaultTelegramBotDeps, opts }) => {';
+  const idLookupAnchor = '\tconst fastTelegramIdLookup = await try9BizClawTelegramIdLookupFastPath(ctxPayload.RawBody ?? ctxPayload.Body ?? "");';
+  const draftAnchor = '\tconst draftMaxChars = Math.min(textLimit, 4096);';
+  const helperCode =
+    'const MODOROCLAW_FAST_TELEGRAM_ROLE_LOOKUP_MARKER = "' + MARKER + '";\n' +
+    'function normalize9BizClawTelegramRoleLookupText(value) {\n' +
+    '\treturn String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, " ").trim();\n' +
+    '}\n' +
+    'function display9BizClawTelegramRole(role) {\n' +
+    '\tconst normalized = String(role || "unknown").trim().toLowerCase();\n' +
+    '\tif (normalized === "ceo") return "CEO";\n' +
+    '\tif (normalized === "internal") return "n\\u1ed9i b\\u1ed9";\n' +
+    '\tif (normalized === "customer") return "kh\\u00e1ch h\\u00e0ng";\n' +
+    '\treturn "ch\\u01b0a ph\\u00e2n lo\\u1ea1i";\n' +
+    '}\n' +
+    'function extract9BizClawTelegramRoleLookupQuery(text) {\n' +
+    '\tconst raw = String(text || "").trim();\n' +
+    '\tif (!raw) return "";\n' +
+    '\tconst normalized = normalize9BizClawTelegramRoleLookupText(raw);\n' +
+    '\tif (!/(noi bo|khach hang|khach|role|vai tro|phan loai|thuoc|dang la)/.test(normalized)) return "";\n' +
+    '\tlet match = raw.match(/(?:nh\\u00f3m|nhom|group|k\\u00eanh|kenh|chat)\\s+(.+?)(?:\\s+(?:\\u0111ang|dang|l\\u00e0|la|thu\\u1ed9c|thuoc|role|vai|ph\\u00e2n|phan|n\\u1ed9i|noi|kh\\u00e1ch|khach)\\b|[?.!,]|$)/i);\n' +
+    '\tlet q = match && match[1] ? match[1].trim() : "";\n' +
+    '\tif (!q) {\n' +
+    '\t\tmatch = raw.match(/\\b[A-Z0-9][A-Z0-9._-]{1,}(?:\\s*-\\s*[A-Z0-9][A-Z0-9._-]+)*\\b/);\n' +
+    '\t\tq = match && match[0] ? match[0].trim() : "";\n' +
+    '\t}\n' +
+    '\tq = q.replace(/^[:\\uFF1A,\\-\\s]+/, "").replace(/[?.!,]+$/, "").trim();\n' +
+    '\treturn q.length >= 2 ? q : "";\n' +
+    '}\n' +
+    'async function try9BizClawTelegramRoleLookupFastPath(text) {\n' +
+    '\tconst query = extract9BizClawTelegramRoleLookupQuery(text);\n' +
+    '\tif (!query) return null;\n' +
+    '\ttry {\n' +
+    '\t\tconst fs = await import("node:fs");\n' +
+    '\t\tconst path = await import("node:path");\n' +
+    '\t\tconst baseDir = process.env.APPDATA ? path.join(process.env.APPDATA, "9bizclaw") : "";\n' +
+    '\t\tif (!baseDir) return null;\n' +
+    '\t\tconst rows = [];\n' +
+    '\t\tconst settingsPath = path.join(baseDir, "telegram-conversation-settings.json");\n' +
+    '\t\tif (fs.existsSync(settingsPath)) {\n' +
+    '\t\t\ttry {\n' +
+    '\t\t\t\tconst settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));\n' +
+    '\t\t\t\tfor (const item of Object.values(settings || {})) {\n' +
+    '\t\t\t\t\tif (item && item.chatId) rows.push(item);\n' +
+    '\t\t\t\t}\n' +
+    '\t\t\t} catch {}\n' +
+    '\t\t}\n' +
+    '\t\tconst memoryDir = path.join(baseDir, "memory", "telegram-chats");\n' +
+    '\t\tif (fs.existsSync(memoryDir)) {\n' +
+    '\t\t\tfor (const file of fs.readdirSync(memoryDir).filter((name) => name.endsWith(".md"))) {\n' +
+    '\t\t\t\ttry {\n' +
+    '\t\t\t\t\tconst chatId = file.replace(/\\.md$/i, "");\n' +
+    '\t\t\t\t\tconst raw = fs.readFileSync(path.join(memoryDir, file), "utf8").slice(0, 2500);\n' +
+    '\t\t\t\t\tconst label = raw.match(/^label:\\s*"?([^"\\r\\n]+)"?/m)?.[1] || raw.match(/^#\\s+(.+)$/m)?.[1] || chatId;\n' +
+    '\t\t\t\t\tconst role = raw.match(/^role:\\s*"?([^"\\r\\n]+)"?/m)?.[1] || "unknown";\n' +
+    '\t\t\t\t\tconst chatType = raw.match(/^chatType:\\s*"?([^"\\r\\n]+)"?/m)?.[1] || "unknown";\n' +
+    '\t\t\t\t\trows.push({ chatId, label, chatType, role, enabled: true });\n' +
+    '\t\t\t\t} catch {}\n' +
+    '\t\t\t}\n' +
+    '\t\t}\n' +
+    '\t\tconst q = normalize9BizClawTelegramRoleLookupText(query);\n' +
+    '\t\tconst scored = rows.filter((row) => row && row.enabled !== false && row.chatId).map((row) => {\n' +
+    '\t\t\tconst label = String(row.label || row.title || row.name || row.chatId || "");\n' +
+    '\t\t\tconst aliases = Array.isArray(row.aliases) ? row.aliases.join(" ") : "";\n' +
+    '\t\t\tconst hay = normalize9BizClawTelegramRoleLookupText([label, aliases, row.chatId, row.entityId, row.role, row.chatType].join(" "));\n' +
+    '\t\t\tlet score = 0;\n' +
+    '\t\t\tif (hay === q) score += 100;\n' +
+    '\t\t\tif (hay.includes(q)) score += 80;\n' +
+    '\t\t\tfor (const part of q.split(/\\s+/).filter(Boolean)) {\n' +
+    '\t\t\t\tif (hay.includes(part)) score += Math.min(12, part.length + 3);\n' +
+    '\t\t\t}\n' +
+    '\t\t\treturn { row, score };\n' +
+    '\t\t}).filter((x) => x.score > 0).sort((a, b) => b.score - a.score);\n' +
+    '\t\tconst picked = scored[0]?.row;\n' +
+    '\t\tif (!picked) return null;\n' +
+    '\t\treturn {\n' +
+    '\t\t\tlabel: String(picked.label || picked.title || picked.name || picked.chatId),\n' +
+    '\t\t\tchatId: String(picked.chatId),\n' +
+    '\t\t\trole: String(picked.role || "unknown"),\n' +
+    '\t\t\tchatType: String(picked.chatType || "unknown")\n' +
+    '\t\t};\n' +
+    '\t} catch {\n' +
+    '\t\treturn null;\n' +
+    '\t}\n' +
+    '}\n' +
+    helperAnchor;
+  const fastPathCode =
+    '\tconst fastTelegramRoleLookup = await try9BizClawTelegramRoleLookupFastPath(ctxPayload.RawBody ?? ctxPayload.Body ?? "");\n' +
+    '\tif (fastTelegramRoleLookup) {\n' +
+    '\t\tconst roleLabel = display9BizClawTelegramRole(fastTelegramRoleLookup.role);\n' +
+    '\t\tconst noun = fastTelegramRoleLookup.chatType === "private" ? "Chat" : "Nh\\u00f3m";\n' +
+    '\t\tconst fastText = noun + " " + fastTelegramRoleLookup.label + " \\u0111ang l\\u00e0 " + roleLabel + ".\\n\\nChi ti\\u1ebft:\\n- T\\u00ean: " + fastTelegramRoleLookup.label + "\\n- Telegram chat ID: " + fastTelegramRoleLookup.chatId + "\\n- Role: " + fastTelegramRoleLookup.role + "\\n- Lo\\u1ea1i chat: " + fastTelegramRoleLookup.chatType;\n' +
+    '\t\tlogTelegramDiag("fast-telegram-role-lookup", `chatId=${fastTelegramRoleLookup.chatId} role=${fastTelegramRoleLookup.role} marker=${MODOROCLAW_FAST_TELEGRAM_ROLE_LOOKUP_MARKER}`);\n' +
+    '\t\tawait bot.api.sendMessage(chatId, fastText, buildTelegramThreadParams(threadSpec) ?? {});\n' +
+    '\t\tlogTelegramDiag("dispatch-end", "fastPath=telegram-role-lookup delivered=true");\n' +
+    '\t\treturn;\n' +
+    '\t}\n';
+
+  for (const file of files) {
+    const fp = path.join(distDir, file);
+    let src = fs.readFileSync(fp, 'utf-8');
+    if (!src.includes(helperAnchor)) continue;
+    if (src.includes(MARKER) || src.includes('try9BizClawTelegramRoleLookupFastPath')) {
+      console.log('[openclaw-latency] telegram-fast-role-lookup: already patched');
+      return;
+    }
+    const dispatchAnchor = src.includes(idLookupAnchor) ? idLookupAnchor : draftAnchor;
+    if (!src.includes(dispatchAnchor)) {
+      console.warn('[openclaw-latency] telegram-fast-role-lookup: dispatch anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureTelegramFastRoleLookupPatch', `dispatch anchor missing in ${file}`);
+      return;
+    }
+    src = src.replace(helperAnchor, helperCode).replace(dispatchAnchor, fastPathCode + dispatchAnchor);
+    fs.writeFileSync(fp, src, 'utf-8');
+    console.log('[openclaw-latency] telegram-fast-role-lookup: applied to ' + file);
+    return;
+  }
+  console.warn('[openclaw-latency] telegram-fast-role-lookup: no telegram bot dist file found');
+}
+
 function ensureOpenclawLatencyPatches(vendorDir, homeDir) {
   if (process.env.MODOROCLAW_DISABLE_LATENCY_PATCHES === '1') {
     console.log('[openclaw-latency] disabled via MODOROCLAW_DISABLE_LATENCY_PATCHES=1');
@@ -1102,6 +1227,7 @@ function ensureOpenclawLatencyPatches(vendorDir, homeDir) {
   ensureSessionOverrideApiKeyPatch(vendorDir, homeDir);
   ensureEmbeddedPiStaticModelResolvePatch(vendorDir, homeDir);
   ensureTelegramFastIdLookupPatch(vendorDir, homeDir);
+  ensureTelegramFastRoleLookupPatch(vendorDir, homeDir);
 }
 
 // ---------------------------------------------------------------------------

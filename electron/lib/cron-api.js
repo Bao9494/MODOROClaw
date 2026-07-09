@@ -218,15 +218,24 @@ function resolveTelegramTargetFromParams(params = {}, opts = {}) {
   };
 }
 
-function hasTelegramTargetHintForCron(params = {}) {
-  const channel = String(params.channel || params.targetChannel || params.platform || '').trim().toLowerCase();
+function telegramCronSourceChannel(params = {}, headers = {}) {
+  return String(params.channel
+    || params.targetChannel
+    || params.platform
+    || headers['x-source-channel']
+    || headers['X-Source-Channel']
+    || '').trim().toLowerCase();
+}
+
+function hasTelegramTargetHintForCron(params = {}, headers = {}) {
+  const channel = telegramCronSourceChannel(params, headers);
   return channel === 'telegram'
     || !!(params.telegramTargetChatId || params.targetChatId || params.telegramChatId)
     || !!(params.telegramName || params.telegramChatName || params.telegramGroupName || params.telegramTargetName);
 }
 
-function scopedTelegramCronParams(params = {}) {
-  const channel = String(params.channel || params.targetChannel || params.platform || '').trim().toLowerCase();
+function scopedTelegramCronParams(params = {}, headers = {}) {
+  const channel = telegramCronSourceChannel(params, headers);
   return {
     targetChatId: params.telegramTargetChatId || params.targetChatId || '',
     telegramChatId: params.telegramChatId || '',
@@ -250,9 +259,9 @@ function telegramTargetId(target) {
 
 function resolveOptionalTelegramTargetForCron(params = {}, headers = {}) {
   const contextTarget = buildTelegramTargetFromContext(params, headers);
-  if (!hasTelegramTargetHintForCron(params)) return { target: contextTarget, resolved: null };
+  if (!hasTelegramTargetHintForCron(params, headers)) return { target: contextTarget, resolved: null };
 
-  const scoped = scopedTelegramCronParams(params);
+  const scoped = scopedTelegramCronParams(params, headers);
   if (!(scoped.targetChatId || scoped.telegramChatId || scoped.name) && contextTarget) {
     return { target: contextTarget, resolved: null };
   }
