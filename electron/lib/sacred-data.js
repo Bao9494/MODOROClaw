@@ -15,9 +15,11 @@ const os = require('os');
 
 const SACRED_DIRS = [
   'memory/zalo-users', 'memory/zalo-groups',
+  'memory/telegram-users', 'memory/telegram-groups',
   'memory/whatsapp-users', 'memory/whatsapp-groups',
   'user-skills',
   'zalo-history', // append-only raw ground-truth archive (account-namespaced)
+  'telegram-history', // append-only raw ground-truth archive (chat-namespaced)
 ];
 
 const SACRED_FILES = [
@@ -31,9 +33,10 @@ const SACRED_FILES = [
 // IMPORTANT: 'user-skills' is a segment; bare 'skills' is NOT — avoid false matches.
 const SACRED_SEGMENTS = [
   'zalo-users', 'zalo-groups',
+  'telegram-users', 'telegram-groups',
   'whatsapp-users', 'whatsapp-groups',
   'user-skills',
-  'zalo-history',
+  'zalo-history', 'telegram-history',
   'CEO-MEMORY.md', 'so-sach.md', 'cong-no.md',
 ];
 

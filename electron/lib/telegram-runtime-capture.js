@@ -19,6 +19,9 @@ const {
   sanitizeTelegramMessageId,
   rememberTelegramMessageRef,
 } = require('./telegram-message-refs');
+const {
+  appendTelegramHistoryEvent,
+} = require('./telegram-history-archive');
 
 const TELEGRAM_USERS_PROFILE_DIR = path.join('memory', 'telegram-users');
 const TELEGRAM_GROUPS_PROFILE_DIR = path.join('memory', 'telegram-groups');
@@ -264,6 +267,23 @@ function captureTelegramRuntimeEvent(raw = {}) {
     timestamp,
     text,
   }) : null;
+  const historyAppend = messageId ? appendTelegramHistoryEvent(null, {
+    chatId,
+    threadId,
+    messageId,
+    replyToMessageId: raw.replyToMessageId || raw.replyTo || raw.quoteMessageId || result.reply_to_message?.message_id,
+    senderId,
+    senderName: senderLabel(sender, raw) || '',
+    senderRole: raw.senderRole || raw.fromRole || '',
+    chatType,
+    label,
+    direction,
+    timestamp,
+    text,
+    source: raw.source || `runtime-${direction}`,
+    sessionKey,
+    hasMedia: !!(raw.hasMedia || raw.media || raw.photo || raw.document || raw.imagePath || result.photo || result.document),
+  }) : null;
   return {
     success: true,
     conversation,
@@ -271,6 +291,7 @@ function captureTelegramRuntimeEvent(raw = {}) {
     senderProfilePath,
     binding,
     messageRef,
+    historyAppend,
   };
 }
 

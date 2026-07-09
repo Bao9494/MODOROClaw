@@ -31,6 +31,7 @@ async function run() {
   const sessionBindings = require('../lib/telegram-session-bindings');
   const messageRefs = require('../lib/telegram-message-refs');
   const runtimeCapture = require('../lib/telegram-runtime-capture');
+  const historyArchive = require('../lib/telegram-history-archive');
   try {
     mem.cleanupCeoMemoryTimers?.();
     const cronSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'cron.js'), 'utf-8');
@@ -38,6 +39,7 @@ async function run() {
     const channelsSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'channels.js'), 'utf-8');
     const appointmentsSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'appointments.js'), 'utf-8');
     const workspaceSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'workspace.js'), 'utf-8');
+    const sacredDataSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'sacred-data.js'), 'utf-8');
     const memorySrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'ceo-memory.js'), 'utf-8');
     const telegramMemorySrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'telegram-memory.js'), 'utf-8');
     const dashboardSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'dashboard-ipc.js'), 'utf-8');
@@ -177,12 +179,32 @@ async function run() {
       capturedRuntime
       && capturedRuntime.conversation?.chatId === '-1003857797941'
       && capturedRuntime.messageRef?.messageId === '456'
+      && capturedRuntime.historyAppend?.appended === 1
       && messageRefs.getLatestTelegramMessageForThread({ chatId: '-1003857797941', threadId: '7' })?.messageId === '456'
       && sessionBindings.resolveTelegramSessionByConversation({ chatId: '-1003857797941', threadId: '7' })?.sessionKey === capturedRuntime.binding?.sessionKey
       && fs.existsSync(capturedGroupProfile)
       && fs.existsSync(capturedUserProfile)
       && tg.listTelegramDirectory({ query: 'LLK-999999', kind: 'group', enabled: true }).count >= 1,
       JSON.stringify(capturedRuntime));
+    runtimeCapture.captureTelegramRuntimeEvent({
+      direction: 'inbound',
+      chatId: '-1003857797941',
+      chatType: 'supergroup',
+      title: 'LLK Agency (GMT +7) - LLK-999999',
+      senderId: '8406640669',
+      threadId: '7',
+      messageId: '456',
+      text: 'duplicate should not append twice',
+      timestamp: Date.now(),
+    });
+    const archivedThread = historyArchive.readTelegramHistory(tmp, '-1003857797941', { threadId: '7', limit: 10 });
+    assert('telegram history archive stores runtime capture and dedups message ids',
+      archivedThread.length === 1
+      && archivedThread[0].messageId === '456'
+      && archivedThread[0].chatId === '-1003857797941'
+      && archivedThread[0].threadId === '7'
+      && archivedThread[0].text.includes('cap nhat memory'),
+      JSON.stringify(archivedThread));
     runtimeCapture.ensureTelegramTierProfile({
       chatId: '-1007777777777',
       chatType: 'supergroup',
@@ -218,6 +240,12 @@ async function run() {
       && workspaceSrc.includes("'memory', 'telegram-users'")
       && workspaceSrc.includes("'memory', 'telegram-groups'"),
       'workspace does not seed all Telegram memory tiers');
+    assert('workspace and sacred data protect telegram history/profile tiers',
+      workspaceSrc.includes("'telegram-history'")
+      && sacredDataSrc.includes("'memory/telegram-users'")
+      && sacredDataSrc.includes("'memory/telegram-groups'")
+      && sacredDataSrc.includes("'telegram-history'"),
+      'telegram history/profile tiers are not seeded/protected');
     assert('telegram manager IPC handlers exist', dashboardSrc.includes("list-telegram-conversations") && dashboardSrc.includes("save-telegram-conversation-settings") && dashboardSrc.includes("seed-telegram-conversations"), 'missing dashboard IPC handlers');
     assert('telegram manager preload bridge exists', preloadSrc.includes('listTelegramConversations') && preloadSrc.includes('saveTelegramConversationSettings') && preloadSrc.includes('readTelegramConversationMemory'), 'missing preload bridge');
     assert('telegram manager UI exists',

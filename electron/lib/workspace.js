@@ -999,6 +999,7 @@ function seedWorkspace() {
   try { fs.mkdirSync(path.join(ws, 'memory', 'telegram-chats'), { recursive: true }); } catch {}
   try { fs.mkdirSync(path.join(ws, 'memory', 'telegram-users'), { recursive: true }); } catch {}
   try { fs.mkdirSync(path.join(ws, 'memory', 'telegram-groups'), { recursive: true }); } catch {}
+  try { fs.mkdirSync(path.join(ws, 'telegram-history'), { recursive: true }); } catch {}
   try { fs.mkdirSync(path.join(ws, 'brand-assets'), { recursive: true }); } catch {}
   try { fs.mkdirSync(path.join(ws, 'brand-assets', 'generated'), { recursive: true }); } catch {}
   try { fs.mkdirSync(path.join(ws, 'media-assets'), { recursive: true }); } catch {}
@@ -1014,6 +1015,7 @@ function seedWorkspace() {
       fs.mkdirSync(path.join(agentWs, 'memory', 'telegram-chats'), { recursive: true });
       fs.mkdirSync(path.join(agentWs, 'memory', 'telegram-users'), { recursive: true });
       fs.mkdirSync(path.join(agentWs, 'memory', 'telegram-groups'), { recursive: true });
+      fs.mkdirSync(path.join(agentWs, 'telegram-history'), { recursive: true });
     }
   } catch {}
 

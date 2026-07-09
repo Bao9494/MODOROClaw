@@ -3034,7 +3034,7 @@
     },
     {
       "path": "electron/lib/workspace.js",
-      "bytes": 66237
+      "bytes": 66407
     },
     {
       "path": "electron/lib/google-api.js",
@@ -3114,7 +3114,7 @@
     },
     {
       "path": "electron/lib/sacred-data.js",
-      "bytes": 24080
+      "bytes": 24272
     },
     {
       "path": "electron/lib/migration.js",

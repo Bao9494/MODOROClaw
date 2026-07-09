@@ -6,6 +6,29 @@
 
 ## 2026-07-08
 
+### Telegram append-only history archive
+
+**File(s):** `electron/lib/telegram-history-archive.js`, `electron/lib/telegram-runtime-capture.js`, `electron/lib/sacred-data.js`, `electron/lib/workspace.js`, `electron/scripts/check-telegram-memory-contract.js`, `docs/plans/2026-07-08-telegram-zalo-full-parity-architecture.md`
+
+**Root cause:** Telegram đã có directory/cache, session binding, message refs và tier profile, nhưng chưa có archive lịch sử append-only tương đương Zalo. Nếu provider cache hoặc session cache mỏng/mất, agent vẫn thiếu nguồn lịch sử bền để scan/profile về sau.
+
+**Fix/Change:**
+- Thêm `telegram-history-archive.js` với layout `telegram-history/<chatId>.jsonl`, append-only, dedup theo `messageId`, đọc được theo `threadId`, thời gian và limit.
+- Hook `captureTelegramRuntimeEvent()` để mỗi event inbound/outbound có `messageId` được ghi vào archive.
+- Đưa `telegram-history`, `memory/telegram-users`, `memory/telegram-groups` vào sacred-data backup/heal.
+- Seed folder `telegram-history` khi tạo workspace.
+- Mở rộng Telegram contract guard để xác nhận runtime capture ghi archive và không append trùng messageId.
+
+**Verification:** `node --check` for changed Telegram/workspace/sacred files PASS; `check-telegram-memory-contract.js` PASS; `check-api-doc-drift.js` PASS; `generate-system-map.js --check` PASS after regenerating system map; `npm.cmd run guard:architecture` PASS; `LOCAL_UNSIGNED_BUILD=1 CSC_IDENTITY_AUTO_DISCOVERY=false npm.cmd run build:win` PASS.
+
+**Artifact:** `O:\project\9bizclaw\artifacts\9BizClaw Setup 2.4.23-telegram-full-parity-unsigned-20260709.exe`, SHA256 `9A1E3722CEFAA2CA9D9A8DA650ADF61E765443C85121EFD1816EF78744776A83`.
+
+**Runtime note:** Build artifact was verified to contain the new Telegram modules in `app.asar`. The currently installed app was still running from `C:\Users\bao.nguyen\AppData\Local\Programs\9bizclaw\9BizClaw.exe`, so this pass did not auto-kill/install over the live BOT. Runtime install can be done in a controlled restart window.
+
+**State:** source guard and unsigned build complete; live install pending controlled restart.
+
+---
+
 ### Telegram role-bound tool scope
 
 **File(s):** `electron/lib/telegram-policy.js`, `electron/scripts/check-telegram-memory-contract.js`
