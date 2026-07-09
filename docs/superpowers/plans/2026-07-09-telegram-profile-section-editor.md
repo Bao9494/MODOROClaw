@@ -84,4 +84,4 @@
 - [x] Update parity docs to mark Telegram structured profile editor as available.
 - [x] Run `node electron/scripts/check-telegram-memory-contract.js`.
 - [x] Check `git diff --stat` and `git status`.
-- [ ] Commit and push to `fork` branch.
+- [x] Commit and push to `fork` branch.
