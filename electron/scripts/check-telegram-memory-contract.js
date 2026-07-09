@@ -302,6 +302,14 @@ async function run() {
       && uiSrc.includes('saveTelegramConversationNote')
       && uiSrc.includes('deleteTelegramConversationNote'),
       'missing Telegram split manager UI');
+    assert('telegram profile modal exposes editable identity and policy controls',
+      uiSrc.includes('tg-profile-label')
+      && uiSrc.includes('tg-profile-aliases')
+      && uiSrc.includes('tg-profile-role')
+      && uiSrc.includes('tg-profile-response-mode')
+      && uiSrc.includes('tg-profile-enabled')
+      && uiSrc.includes('saveTelegramConversationProfileSettings'),
+      'missing Telegram profile modal identity/policy controls');
 
     tg.writeTelegramDirectoryCache({
       entries: [{
