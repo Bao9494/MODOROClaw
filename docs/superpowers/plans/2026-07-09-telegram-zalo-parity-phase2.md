@@ -154,3 +154,13 @@ Commit with message `Improve Telegram Zalo parity profile controls`, then `git p
   - `node scripts/check-dashboard-ux-qol.js`
   - `npm.cmd run map:check`
 - 2026-07-09: Runtime smoke PASS: authenticated `GET /api/telegram/profile?name=LLK` returns `targetChatId=-1003857797941`, `role=internal`, `responseMode=mention`, `toolScope=internal`, `hasProfile=true`.
+- 2026-07-09: Full guard/build/runtime PASS:
+  - `npm.cmd run guard:architecture`
+  - `LOCAL_UNSIGNED_BUILD=1 npm.cmd run build:win`
+  - Installer copied to `O:\project\9bizclaw\artifacts\9BizClaw Setup 2.4.23-telegram-profile-controls-unsigned-20260709.exe`
+  - SHA256 `67BE567BEEE1C779827E4ED14B72B07DF9E9632C787440C9FC12FA1C5CEB2D48`
+  - Installed `dist\win-unpacked` into `C:\Users\bao.nguyen\AppData\Local\Programs\9bizclaw`
+  - Previous install backed up to `C:\Users\bao.nguyen\AppData\Local\Programs\9bizclaw-backup-20260709-telegram-profile-controls`
+  - Live `app.asar` contains `tg-profile-label`, `tg-profile-aliases`, `tg-profile-role`, `tg-profile-response-mode`, `tg-profile-enabled`, `saveTelegramConversationProfileSettings`, and `normalizeTelegramAliases`
+  - Live ports `18789`, `20128`, `20129`, `20200` are listening
+  - Runtime API `/api/telegram/profile?name=LLK` still resolves `targetChatId=-1003857797941`
