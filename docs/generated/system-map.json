@@ -3041,6 +3041,10 @@
       "bytes": 117791
     },
     {
+      "path": "electron/lib/vendor-patches.js",
+      "bytes": 100827
+    },
+    {
       "path": "electron/lib/knowledge.js",
       "bytes": 96863
     },
@@ -3051,10 +3055,6 @@
     {
       "path": "electron/lib/fb-schedule.js",
       "bytes": 94418
-    },
-    {
-      "path": "electron/lib/vendor-patches.js",
-      "bytes": 92456
     },
     {
       "path": "electron/lib/gateway.js",

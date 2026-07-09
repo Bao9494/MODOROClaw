@@ -52,6 +52,15 @@ async function run() {
     const memoryIndexSrc = fs.readFileSync(path.join(__dirname, '..', '..', 'MEMORY.md'), 'utf-8');
     const telegramSkillSrc = fs.readFileSync(path.join(__dirname, '..', '..', 'skills', 'operations', 'telegram-ceo.md'), 'utf-8');
 
+    assert('telegram vendor patch captures inbound history from dispatch and mention-skip paths',
+      vendorPatchSrc.includes('20260710-telegram-inbound-history-capture-v1')
+      && vendorPatchSrc.includes('ensureTelegramInboundHistoryCapturePatch')
+      && vendorPatchSrc.includes('record9BizClawTelegramInboundHistory')
+      && vendorPatchSrc.includes('telegram-provider-inbound-dispatch')
+      && vendorPatchSrc.includes('telegram-provider-inbound-skip')
+      && vendorPatchSrc.includes('ensureTelegramInboundHistoryCapturePatch(vendorDir, homeDir)'),
+      'missing Telegram inbound history vendor patch guard');
+
     const group = tg.resolveTelegramConversation({
       telegramChatId: '-1003857797941',
       telegramChatType: 'supergroup',

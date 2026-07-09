@@ -1348,6 +1348,148 @@ function ensureTelegramProviderTimeoutGuardPatch(vendorDir, homeDir) {
   console.warn('[openclaw-latency] telegram-provider-timeout: no telegram bot dist file found');
 }
 
+function ensureTelegramInboundHistoryCapturePatch(vendorDir, homeDir) {
+  const distDir = _getOpenclawDistDir(vendorDir);
+  if (!distDir) return;
+  const files = fs.readdirSync(distDir).filter(f => f.startsWith('bot-') && f.endsWith('.js'));
+  const MARKER = '20260710-telegram-inbound-history-capture-v1';
+  const bodyHelperAnchor = 'async function resolveTelegramInboundBody(params) {';
+  const dispatchAnchor = '\tlogTelegramDiag("dispatch-start", `streamMode=${streamMode ?? "n/a"} replyToMode=${replyToMode ?? "n/a"}`);\n';
+  const mentionSkipAnchor = '\t\trecordPendingHistoryEntryIfEnabled({\n';
+  const helperCode = [
+    'const MODOROCLAW_TELEGRAM_INBOUND_HISTORY_CAPTURE_MARKER = "' + MARKER + '";',
+    'function compact9BizClawTelegramInboundHistoryText(value, max = 4000) {',
+    '\tconst text = value == null ? "" : String(value);',
+    '\treturn text.length > max ? text.slice(0, max) : text;',
+    '}',
+    'function resolve9BizClawTelegramInboundHistoryChatId(params = {}) {',
+    '\tconst ctxPayload = params.ctxPayload || {};',
+    '\tlet raw = params.chatId ?? params.msg?.chat?.id ?? ctxPayload.To ?? ctxPayload.From ?? "";',
+    '\tlet value = String(raw || "").trim();',
+    '\tvalue = value.replace(/^telegram:group:/i, "").replace(/^telegram:/i, "").replace(/:thread:.+$/i, "");',
+    '\treturn value.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 120);',
+    '}',
+    'function resolve9BizClawTelegramInboundHistoryMessageId(params = {}) {',
+    '\tconst ctxPayload = params.ctxPayload || {};',
+    '\tconst raw = ctxPayload.MessageSid ?? params.msg?.message_id ?? "";',
+    '\tconst value = String(raw || "").trim() || String(Date.now());',
+    '\treturn value.replace(/[^A-Za-z0-9_.:-]/g, "_").slice(0, 120);',
+    '}',
+    'function has9BizClawTelegramInboundHistoryMessage(fs, file, messageId) {',
+    '\ttry {',
+    '\t\tif (!fs.existsSync(file)) return false;',
+    '\t\tconst stat = fs.statSync(file);',
+    '\t\tconst size = Math.min(stat.size, 262144);',
+    '\t\tconst fd = fs.openSync(file, "r");',
+    '\t\ttry {',
+    '\t\t\tconst buffer = Buffer.alloc(size);',
+    '\t\t\tfs.readSync(fd, buffer, 0, size, Math.max(0, stat.size - size));',
+    '\t\t\tconst lines = buffer.toString("utf8").split(/\\r?\\n/).filter(Boolean);',
+    '\t\t\tfor (let i = lines.length - 1; i >= 0; i -= 1) {',
+    '\t\t\t\ttry { if (JSON.parse(lines[i]).messageId === messageId) return true; } catch {}',
+    '\t\t\t}',
+    '\t\t} finally {',
+    '\t\t\tfs.closeSync(fd);',
+    '\t\t}',
+    '\t} catch {}',
+    '\treturn false;',
+    '}',
+    'async function record9BizClawTelegramInboundHistory(params = {}) {',
+    '\ttry {',
+    '\t\tconst fs = await import("node:fs");',
+    '\t\tconst path = await import("node:path");',
+    '\t\tconst baseDir = process.env.APPDATA ? path.join(process.env.APPDATA, "9bizclaw") : "";',
+    '\t\tif (!baseDir) return false;',
+    '\t\tconst ctxPayload = params.ctxPayload || {};',
+    '\t\tconst msg = params.msg || {};',
+    '\t\tconst chatId = resolve9BizClawTelegramInboundHistoryChatId({ ctxPayload, msg, chatId: params.chatId });',
+    '\t\tconst messageId = resolve9BizClawTelegramInboundHistoryMessageId({ ctxPayload, msg });',
+    '\t\tif (!chatId || !messageId) return false;',
+    '\t\tconst root = path.join(baseDir, "telegram-history");',
+    '\t\tfs.mkdirSync(root, { recursive: true });',
+    '\t\tconst file = path.join(root, chatId + ".jsonl");',
+    '\t\tif (has9BizClawTelegramInboundHistoryMessage(fs, file, messageId)) return false;',
+    '\t\tconst from = msg.from || {};',
+    '\t\tconst senderName = compact9BizClawTelegramInboundHistoryText(ctxPayload.SenderName || [from.first_name, from.last_name].filter(Boolean).join(" ") || from.username || "", 160);',
+    '\t\tconst timestamp = Number(ctxPayload.Timestamp ?? (msg.date ? msg.date * 1000 : Date.now()));',
+    '\t\tconst chatType = params.isGroup ? (msg.chat?.type || "supergroup") : (msg.chat?.type || ctxPayload.ChatType || "private");',
+    '\t\tconst label = compact9BizClawTelegramInboundHistoryText(ctxPayload.GroupSubject || msg.chat?.title || ctxPayload.ConversationLabel || senderName || chatId, 240);',
+    '\t\tconst text = compact9BizClawTelegramInboundHistoryText(params.rawBody ?? ctxPayload.RawBody ?? ctxPayload.BodyForAgent ?? ctxPayload.Body ?? msg.text ?? msg.caption ?? "", 4000);',
+    '\t\tconst threadId = String(ctxPayload.MessageThreadId ?? params.threadSpec?.id ?? params.resolvedThreadId ?? msg.message_thread_id ?? "");',
+    '\t\tconst row = {',
+    '\t\t\tdirection: "inbound",',
+    '\t\t\tchannel: "telegram",',
+    '\t\t\tchatId,',
+    '\t\t\tchatType,',
+    '\t\t\tlabel,',
+    '\t\t\tmessageId,',
+    '\t\t\tthreadId,',
+    '\t\t\tsenderId: String(ctxPayload.SenderId ?? params.senderId ?? from.id ?? ""),',
+    '\t\t\tsenderName,',
+    '\t\t\tsenderUsername: String(ctxPayload.SenderUsername ?? params.senderUsername ?? from.username ?? ""),',
+    '\t\t\tsenderRole: String(ctxPayload.SenderRole ?? params.senderRole ?? ""),',
+    '\t\t\tmemberStatus: String(params.memberStatus ?? ""),',
+    '\t\t\tmemberTitle: String(params.memberTitle ?? ""),',
+    '\t\t\tisOwner: params.isOwner === true,',
+    '\t\t\tisAdmin: params.isAdmin === true,',
+    '\t\t\tisMember: params.isMember === true,',
+    '\t\t\ttext,',
+    '\t\t\ttimestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),',
+    '\t\t\tiso: new Date(Number.isFinite(timestamp) ? timestamp : Date.now()).toISOString(),',
+    '\t\t\tsessionKey: String(ctxPayload.SessionKey ?? params.sessionKey ?? params.route?.sessionKey ?? ""),',
+    '\t\t\taccountId: String(params.accountId ?? params.route?.accountId ?? ""),',
+    '\t\t\treplyToMessageId: String(ctxPayload.ReplyToId ?? msg.reply_to_message?.message_id ?? ""),',
+    '\t\t\thasMedia: Boolean(msg.photo || msg.document || msg.video || msg.voice || msg.audio || msg.sticker),',
+    '\t\t\tsource: String(params.source || "telegram-provider-inbound"),',
+    '\t\t\tcaptureMarker: MODOROCLAW_TELEGRAM_INBOUND_HISTORY_CAPTURE_MARKER',
+    '\t\t};',
+    '\t\tfs.appendFileSync(file, JSON.stringify(row) + "\\n", "utf8");',
+    '\t\ttry { params.runtime?.log?.(`[telegram-history] inbound captured chat=${chatId} msg=${messageId} source=${row.source} marker=${MODOROCLAW_TELEGRAM_INBOUND_HISTORY_CAPTURE_MARKER}`); } catch {}',
+    '\t\treturn true;',
+    '\t} catch (err) {',
+    '\t\ttry { params.runtime?.log?.(`[telegram-history] inbound capture skipped: ${err?.message || err}`); } catch {}',
+    '\t\treturn false;',
+    '\t}',
+    '}',
+    bodyHelperAnchor,
+  ].join('\n');
+  const dispatchCaptureCode =
+    dispatchAnchor +
+    '\tawait record9BizClawTelegramInboundHistory({ ctxPayload, msg, chatId, isGroup, threadSpec, route, runtime, source: "telegram-provider-inbound-dispatch" });\n';
+  const mentionSkipCaptureCode =
+    '\t\tawait record9BizClawTelegramInboundHistory({ msg, chatId, isGroup, accountId, senderId, senderUsername, sessionKey, resolvedThreadId, rawBody, source: "telegram-provider-inbound-skip" });\n' +
+    mentionSkipAnchor;
+
+  for (const file of files) {
+    const fp = path.join(distDir, file);
+    let src = fs.readFileSync(fp, 'utf-8');
+    if (!src.includes(bodyHelperAnchor)) continue;
+    if (src.includes(MARKER) || src.includes('record9BizClawTelegramInboundHistory')) {
+      console.log('[openclaw-latency] telegram-inbound-history: already patched');
+      return;
+    }
+    for (const [label, anchor] of [
+      ['body-helper', bodyHelperAnchor],
+      ['dispatch-start', dispatchAnchor],
+      ['mention-skip', mentionSkipAnchor],
+    ]) {
+      if (!src.includes(anchor)) {
+        console.warn('[openclaw-latency] telegram-inbound-history: ' + label + ' anchor not found in ' + file);
+        _logPatchFailure(homeDir, 'ensureTelegramInboundHistoryCapturePatch', `${label} anchor missing in ${file}`);
+        return;
+      }
+    }
+    src = src
+      .replace(bodyHelperAnchor, helperCode)
+      .replace(dispatchAnchor, dispatchCaptureCode)
+      .replace(mentionSkipAnchor, mentionSkipCaptureCode);
+    fs.writeFileSync(fp, src, 'utf-8');
+    console.log('[openclaw-latency] telegram-inbound-history: applied to ' + file);
+    return;
+  }
+  console.warn('[openclaw-latency] telegram-inbound-history: no telegram bot dist file found');
+}
+
 function ensureOpenclawLatencyPatches(vendorDir, homeDir) {
   if (process.env.MODOROCLAW_DISABLE_LATENCY_PATCHES === '1') {
     console.log('[openclaw-latency] disabled via MODOROCLAW_DISABLE_LATENCY_PATCHES=1');
@@ -1361,6 +1503,7 @@ function ensureOpenclawLatencyPatches(vendorDir, homeDir) {
   ensureTelegramFastIdLookupPatch(vendorDir, homeDir);
   ensureTelegramFastRoleLookupPatch(vendorDir, homeDir);
   ensureTelegramProviderTimeoutGuardPatch(vendorDir, homeDir);
+  ensureTelegramInboundHistoryCapturePatch(vendorDir, homeDir);
 }
 
 function ensureExecApprovalReplyCoalescePatch(vendorDir, homeDir) {
@@ -1695,5 +1838,6 @@ module.exports = {
   ensureOpenclawLatencyPatches,
   ensureExecApprovalReplyCoalescePatch,
   ensureTelegramProviderTimeoutGuardPatch,
+  ensureTelegramInboundHistoryCapturePatch,
   applyAllVendorPatches,
 };
