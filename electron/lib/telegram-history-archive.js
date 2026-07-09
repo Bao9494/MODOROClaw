@@ -15,6 +15,7 @@ const path = require('path');
 const { sanitizeTelegramChatId } = require('./telegram-directory');
 const { sanitizeTelegramThreadId } = require('./telegram-session-bindings');
 const { sanitizeTelegramMessageId } = require('./telegram-message-refs');
+const { normalizeTelegramMemberMetadata } = require('./telegram-member-metadata');
 
 const TELEGRAM_HISTORY_DIR = 'telegram-history';
 const DEDUP_TAIL_BYTES = 256 * 1024;
@@ -90,6 +91,7 @@ function normalizeTelegramHistoryEvent(raw = {}) {
     ? String(raw.direction).toLowerCase()
     : 'inbound';
   const ts = normalizeTimestamp(raw.timestamp || raw.ts || raw.date);
+  const member = normalizeTelegramMemberMetadata({ ...raw, chatId });
   return {
     messageId,
     ts,
@@ -101,6 +103,11 @@ function normalizeTelegramHistoryEvent(raw = {}) {
     senderId: compactHistoryText(raw.senderId || raw.telegramSenderId || raw.fromId || '', 80),
     senderName: compactHistoryText(raw.senderName || raw.senderDisplayName || raw.fromName || '', 160),
     senderRole: compactHistoryText(raw.senderRole || raw.fromRole || '', 40),
+    memberStatus: compactHistoryText(member.memberStatus || 'unknown', 40),
+    memberTitle: compactHistoryText(member.memberTitle || '', 120),
+    isOwner: !!member.isOwner,
+    isAdmin: !!member.isAdmin,
+    isMember: !!member.isMember,
     chatType: compactHistoryText(raw.chatType || raw.telegramChatType || '', 40),
     label: compactHistoryText(raw.label || raw.title || raw.chatTitle || '', 180),
     text: compactHistoryText(raw.text || raw.body || raw.message || raw.caption || ''),

@@ -1230,6 +1230,60 @@ function ensureOpenclawLatencyPatches(vendorDir, homeDir) {
   ensureTelegramFastRoleLookupPatch(vendorDir, homeDir);
 }
 
+function ensureExecApprovalReplyCoalescePatch(vendorDir, homeDir) {
+  const distDir = _getOpenclawDistDir(vendorDir);
+  if (!distDir) return;
+  const files = fs.readdirSync(distDir).filter(f => f.startsWith('exec-approval-reply') && f.endsWith('.js'));
+  const MARKER = '20260709-coalesce-exec-approval-reply-v1';
+  const anchor =
+    '\tconst descriptors = buildExecApprovalActionDescriptors({\n' +
+    '\t\tapprovalCommandId,\n' +
+    '\t\tallowedDecisions\n' +
+    '\t});';
+  const safeReturn =
+    '\tconst modoroApprovalSafeText = "Cần duyệt thao tác trong OpenClaw. Anh mở Dashboard hoặc Web UI để duyệt; chi tiết lệnh kỹ thuật không được gửi ra chat."; // ' + MARKER + '\n' +
+    '\treturn {\n' +
+    '\t\ttext: modoroApprovalSafeText,\n' +
+    '\t\tinteractive: buildApprovalInteractiveReply({\n' +
+    '\t\t\tapprovalId: params.approvalId,\n' +
+    '\t\t\tallowedDecisions\n' +
+    '\t\t}),\n' +
+    '\t\tchannelData: { execApproval: {\n' +
+    '\t\t\tapprovalId: params.approvalId,\n' +
+    '\t\t\tapprovalSlug: params.approvalSlug,\n' +
+    '\t\t\tapprovalKind: "exec",\n' +
+    '\t\t\tagentId: normalizeOptionalString(params.agentId),\n' +
+    '\t\t\tallowedDecisions,\n' +
+    '\t\t\tsessionKey: normalizeOptionalString(params.sessionKey)\n' +
+    '\t\t} }\n' +
+    '\t};\n' +
+    anchor;
+  let scanned = 0;
+  let patched = 0;
+  for (const file of files) {
+    const fp = path.join(distDir, file);
+    let src;
+    try { src = fs.readFileSync(fp, 'utf-8'); } catch { continue; }
+    if (!src.includes('function buildExecApprovalPendingReplyPayload(params)')) continue;
+    scanned += 1;
+    if (src.includes(MARKER)) continue;
+    if (!src.includes(anchor)) {
+      console.warn('[approval-reply-coalesce] anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureExecApprovalReplyCoalescePatch', `anchor missing in ${file}`);
+      continue;
+    }
+    fs.writeFileSync(fp, src.replace(anchor, safeReturn), 'utf-8');
+    patched += 1;
+    console.log('[approval-reply-coalesce] applied to ' + file);
+  }
+  if (patched > 0) console.log(`[approval-reply-coalesce] ${patched}/${scanned} file(s) patched`);
+  else if (scanned > 0) console.log('[approval-reply-coalesce] already patched');
+  else {
+    console.warn('[approval-reply-coalesce] no exec-approval-reply file found');
+    _logPatchFailure(homeDir, 'ensureExecApprovalReplyCoalescePatch', 'no exec approval reply file found');
+  }
+}
+
 // ---------------------------------------------------------------------------
 // applyAllVendorPatches — one call from boot or build script
 // ---------------------------------------------------------------------------
@@ -1248,6 +1302,7 @@ function applyAllVendorPatches({ vendorDir, homeDir, workspaceDir }) {
   results.friendEvent = _tryPatch('friendEvent', () => ensureOpenzcaFriendEventFix(vendorDir, workspaceDir));
   results.authCacheTtl = _tryPatch('authCacheTtl', () => ensureAuthCacheTtlExtension(vendorDir));
   results.sessionFreeze = _tryPatch('sessionFreeze', () => ensureSessionFreezePatches(vendorDir));
+  results.approvalReplyCoalesce = _tryPatch('approvalReplyCoalesce', () => ensureExecApprovalReplyCoalescePatch(vendorDir, homeDir));
   results.latency = _tryPatch('latency', () => ensureOpenclawLatencyPatches(vendorDir, homeDir));
 
   return results;
@@ -1505,5 +1560,6 @@ module.exports = {
   ensureAuthCacheTtlExtension,
   ensureSessionFreezePatches,
   ensureOpenclawLatencyPatches,
+  ensureExecApprovalReplyCoalescePatch,
   applyAllVendorPatches,
 };

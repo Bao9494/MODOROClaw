@@ -484,6 +484,13 @@ const _outputFilterSafeMsgs = [
   'Dạ em ghi nhận rồi ạ. Em sẽ kiểm tra và phản hồi lại mình ngay.',
   'Dạ em đang xác nhận lại thông tin, mình chờ em xíu nha.',
 ];
+const _approvalOutputFilterSafeMsg = 'Cần duyệt thao tác trong OpenClaw. Anh mở Dashboard hoặc Web UI để duyệt; chi tiết lệnh kỹ thuật không được gửi ra chat.';
+const _approvalOutputFilterPatternNames = new Set([
+  'tool-approve-leak',
+  'tool-allow-once',
+  'tool-get-content',
+  'tool-exec-leak',
+]);
 
 /**
  * Filter sensitive/leaked content from outbound messages.
@@ -495,7 +502,9 @@ function filterSensitiveOutput(text) {
   if (!text || typeof text !== 'string') return { blocked: false, text };
   for (const p of _outputFilterPatterns) {
     if (p.re.test(text)) {
-      const safeMsg = _outputFilterSafeMsgs[Math.floor(Math.random() * _outputFilterSafeMsgs.length)];
+      const safeMsg = _approvalOutputFilterPatternNames.has(p.name)
+        ? _approvalOutputFilterSafeMsg
+        : _outputFilterSafeMsgs[Math.floor(Math.random() * _outputFilterSafeMsgs.length)];
       try {
         const ws = getWorkspace();
         if (ws) {

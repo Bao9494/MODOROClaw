@@ -2,6 +2,10 @@
 
 const { makeTelegramConversationBindingKey } = require('./telegram-session-bindings');
 const { getLatestTelegramMessageForThread } = require('./telegram-message-refs');
+const {
+  normalizeTelegramMemberMetadata,
+  getTelegramMemberMetadata,
+} = require('./telegram-member-metadata');
 
 function compactTelegramContextText(value, max = 220) {
   return String(value || '')
@@ -34,12 +38,18 @@ function buildTelegramSenderContext(source = {}) {
     'userId',
     'authorId',
   ]));
+  const member = normalizeTelegramMemberMetadata({ ...source, userId: senderId });
   return {
     id: senderId,
     username: compactTelegramContextText(pickFirst(source, ['senderUsername', 'fromUsername', 'username', 'handle']), 120),
     displayName: compactTelegramContextText(pickFirst(source, ['senderName', 'senderDisplayName', 'fromName', 'displayName', 'authorName']), 120),
     role: compactTelegramContextText(pickFirst(source, ['senderRole', 'fromRole', 'memberRole']), 40) || 'unknown',
-    isBot: !!(source.senderIsBot || source.fromIsBot || source.isBot),
+    memberStatus: member.memberStatus || 'unknown',
+    memberTitle: member.memberTitle || '',
+    isOwner: !!member.isOwner,
+    isAdmin: !!member.isAdmin,
+    isMember: !!member.isMember,
+    isBot: !!(source.senderIsBot || source.fromIsBot || source.isBot || member.isBot),
   };
 }
 
@@ -78,6 +88,14 @@ function buildTelegramInboundContext({ conversation = {}, source = {}, profile =
     chatId: conversation.targetChatId || conversation.chatId,
     threadId: thread.id,
   });
+  const sourceSender = buildTelegramSenderContext(source);
+  const cachedMember = getTelegramMemberMetadata({
+    chatId: conversation.targetChatId || conversation.chatId,
+    userId: sourceSender.id,
+  });
+  const sender = cachedMember
+    ? buildTelegramSenderContext({ ...cachedMember, ...source })
+    : sourceSender;
   return {
     trusted: true,
     channel: 'telegram',
@@ -97,7 +115,7 @@ function buildTelegramInboundContext({ conversation = {}, source = {}, profile =
       scopes: Array.isArray(conversation.scopeHints) ? conversation.scopeHints : [],
       bindingKey,
     },
-    sender: buildTelegramSenderContext(source),
+    sender,
     thread: {
       ...thread,
       bindingKey,

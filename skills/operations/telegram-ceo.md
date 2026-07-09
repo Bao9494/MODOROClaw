@@ -61,6 +61,19 @@ Sau khi có ảnh trong `brand-assets/generated/...`, dùng:
    - `customer`: nhóm/khách hàng, chỉ nạp scope customer/public đúng chat.
    - `unknown`: hỏi lại hoặc dùng thông tin tối thiểu.
 
+### Kiểm tra quyền Telegram thật trong nhóm
+Khi CEO hỏi "anh là admin/owner/member không", "quyền của anh trong nhóm này là gì", hoặc cần xác minh quyền Telegram thật:
+
+1. Resolve chat trước bằng `/api/telegram/conversations` hoặc ID đang có.
+2. Gọi: `web_fetch http://127.0.0.1:20200/api/telegram/member?targetChatId=<id>&userId=<telegramUserId>`
+3. Nếu đang kiểm tra chính CEO và chưa có `userId`, có thể bỏ `userId`; API sẽ dùng Telegram CEO ID trong cấu hình.
+4. Chỉ kết luận `owner/admin/member` theo `member.memberStatus`:
+   - `creator` = owner.
+   - `administrator` = admin.
+   - `member` hoặc `restricted` = member.
+   - `left` hoặc `kicked` = không còn trong nhóm.
+5. Không dùng `role: internal/customer/ceo` để kết luận quyền Telegram thật. Role chỉ là phân tầng quản trị/memory của 9BizClaw.
+
 ### Tạo lịch/cron nhắc Telegram
 Khi nhắc/gửi vào nhóm Telegram: dùng `/api/cron/create` với `channel=telegram` và `targetChatId=<id>` hoặc `telegramName=<tên>`. Không dùng `groupName` Zalo trừ khi CEO nói rõ Zalo.
 

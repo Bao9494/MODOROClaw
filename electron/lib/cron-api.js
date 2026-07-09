@@ -4,7 +4,7 @@ const path = require('path');
 const { isPathSafe, writeJsonAtomic } = require('./util');
 const { getWorkspace, getBrandAssetsDir, purgeAgentSessions, auditLog, BRAND_ASSET_FORMATS, BRAND_ASSET_MAX_SIZE } = require('./workspace');
 const { _withCustomCronLock, _withKnowledgeLock, loadCustomCrons, getCustomCronsPath, restartCronJobs } = require('./cron');
-const { sendCeoAlert, sendZaloTo, sendZaloMediaTo, sendTelegram, sendTelegramPhoto, probeZaloReady } = require('./channels');
+const { sendCeoAlert, sendZaloTo, sendZaloMediaTo, sendTelegram, sendTelegramPhoto, probeZaloReady, getTelegramConfig } = require('./channels');
 const { getZcaCacheDir, sanitizeZaloUserId } = require('./zalo-memory');
 const { stripCronApiTokenFromAgents } = require('./cron-api-token');
 const mediaLibrary = require('./media-library');
@@ -17,6 +17,7 @@ const inventoryManager = require('./inventory-manager');
 inventoryManager.init({ getWorkspace });
 const { buildTelegramTargetFromContext } = require('./telegram-routing');
 const telegramMemory = require('./telegram-memory');
+const telegramMemberMetadata = require('./telegram-member-metadata');
 
 let shell;
 try { shell = require('electron').shell; } catch {}
@@ -3034,6 +3035,71 @@ function startCronApi() {
           conversation: resolved.conversation || null,
           profile,
         });
+      } catch (e) { return jsonResp(res, 500, { error: e.message }); }
+
+    } else if (urlPath === '/api/telegram/member') {
+      try {
+        const resolved = resolveTelegramTargetFromParams(params, { requireEnabled: false, allowAmbiguous: true });
+        if (resolved.error) return jsonResp(res, resolved.status || 400, resolved);
+        const cfg = getTelegramConfig ? getTelegramConfig() : {};
+        const userId = telegramMemory.sanitizeTelegramChatId(
+          params.userId
+          || params.senderId
+          || params.telegramUserId
+          || params.fromId
+          || cfg.chatId
+        );
+        if (!userId) return jsonResp(res, 400, { error: 'userId required' });
+        const cached = telegramMemberMetadata.getTelegramMemberMetadata({
+          chatId: resolved.targetChatId,
+          userId,
+        });
+        if (boolParam(params.cachedOnly || params.cacheOnly, false)) {
+          return jsonResp(res, cached ? 200 : 404, {
+            success: !!cached,
+            source: 'cache',
+            targetChatId: resolved.targetChatId,
+            userId,
+            conversation: resolved.conversation || null,
+            member: cached || null,
+          });
+        }
+        if (!cfg.token) {
+          return jsonResp(res, cached ? 200 : 400, {
+            success: !!cached,
+            source: cached ? 'cache' : 'none',
+            targetChatId: resolved.targetChatId,
+            userId,
+            conversation: resolved.conversation || null,
+            member: cached || null,
+            error: cached ? undefined : 'telegram bot token missing',
+          });
+        }
+        try {
+          const member = await telegramMemberMetadata.refreshTelegramMemberMetadata({
+            token: cfg.token,
+            chatId: resolved.targetChatId,
+            userId,
+          });
+          return jsonResp(res, 200, {
+            success: true,
+            source: 'telegram-getChatMember',
+            targetChatId: resolved.targetChatId,
+            userId,
+            conversation: resolved.conversation || null,
+            member,
+          });
+        } catch (e) {
+          return jsonResp(res, cached ? 200 : 502, {
+            success: !!cached,
+            source: cached ? 'cache' : 'telegram-getChatMember',
+            targetChatId: resolved.targetChatId,
+            userId,
+            conversation: resolved.conversation || null,
+            member: cached || null,
+            error: e && e.message ? e.message : String(e),
+          });
+        }
       } catch (e) { return jsonResp(res, 500, { error: e.message }); }
 
     } else if (urlPath === '/api/telegram/send') {

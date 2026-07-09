@@ -32,6 +32,7 @@ async function run() {
   const messageRefs = require('../lib/telegram-message-refs');
   const runtimeCapture = require('../lib/telegram-runtime-capture');
   const historyArchive = require('../lib/telegram-history-archive');
+  const channels = require('../lib/channels');
   try {
     mem.cleanupCeoMemoryTimers?.();
     const cronSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'cron.js'), 'utf-8');
@@ -141,6 +142,8 @@ async function run() {
       source: {
         senderId: '8406640669',
         senderRole: 'ceo',
+        memberStatus: 'administrator',
+        customTitle: 'Ops Admin',
         messageId: '123',
         replyToMessageId: '122',
         topicId: '7',
@@ -153,6 +156,9 @@ async function run() {
       && inboundCtx.conversation.directoryKind === 'group'
       && inboundCtx.sender.id === '8406640669'
       && inboundCtx.sender.role === 'ceo'
+      && inboundCtx.sender.memberStatus === 'administrator'
+      && inboundCtx.sender.memberTitle === 'Ops Admin'
+      && inboundCtx.sender.isAdmin === true
       && inboundCtx.thread.id === '7'
       && inboundCtx.thread.bindingKey === 'telegram:-1003857797941:thread:7'
       && inboundCtx.message.replyTo === '122'
@@ -167,6 +173,8 @@ async function run() {
       senderId: '8406640669',
       senderName: 'Anh Bao',
       senderRole: 'ceo',
+      memberStatus: 'administrator',
+      customTitle: 'Ops Admin',
       threadId: '7',
       messageId: '456',
       replyToMessageId: '123',
@@ -204,6 +212,8 @@ async function run() {
       && archivedThread[0].messageId === '456'
       && archivedThread[0].chatId === '-1003857797941'
       && archivedThread[0].threadId === '7'
+      && archivedThread[0].memberStatus === 'administrator'
+      && archivedThread[0].memberTitle === 'Ops Admin'
       && archivedThread[0].text.includes('cap nhat memory'),
       JSON.stringify(archivedThread));
     runtimeCapture.ensureTelegramTierProfile({
@@ -386,6 +396,7 @@ async function run() {
       && cronApiSrc.includes("urlPath === '/api/telegram/directory/refresh'")
       && cronApiSrc.includes("urlPath === '/api/telegram/send'")
       && cronApiSrc.includes("urlPath === '/api/telegram/profile'")
+      && cronApiSrc.includes("urlPath === '/api/telegram/member'")
       && cronApiSrc.includes("urlPath === '/api/telegram/seed'"),
       'missing Telegram API routes');
     assert('cron-api creates Telegram fixed crons without LLM',
@@ -429,6 +440,10 @@ async function run() {
       telegramSkillSrc.includes('## GỬI TELEGRAM')
       && telegramSkillSrc.includes('/api/telegram/send?targetChatId=<id>&text=<nội dung>'),
       'telegram-ceo skill missing Telegram send workflow');
+    assert('telegram-ceo skill documents real Telegram member lookup',
+      telegramSkillSrc.includes('/api/telegram/member?targetChatId=<id>&userId=<telegramUserId>')
+      && telegramSkillSrc.includes('owner/admin/member'),
+      'telegram-ceo skill missing Telegram member metadata workflow');
     assert('MEMORY index includes Telegram chat profiles',
       memoryIndexSrc.includes('memory/telegram-chats/<chatId>.md')
       && memoryIndexSrc.includes('memory/telegram-users/<userId>.md')
@@ -441,6 +456,26 @@ async function run() {
       && vendorPatchSrc.includes('try9BizClawTelegramRoleLookupFastPath')
       && vendorPatchSrc.includes('fast-telegram-role-lookup'),
       'missing Telegram fast role lookup patch');
+    const approvalLeak = channels.filterSensitiveOutput([
+      'Approval required.',
+      'Run:',
+      '```txt',
+      '/approve fc52e293 allow-once',
+      '```',
+      'Pending command:',
+      '```sh',
+      'python -c "import urllib.request;print(urllib.request.urlopen(\'https://example.com\', timeout=20).read())"',
+      '```',
+    ].join('\n'));
+    assert('approval output filter blocks raw command payloads',
+      approvalLeak.blocked === true
+      && !/\/approve|allow-once|Pending command|python\s+-c|urllib\.request/i.test(approvalLeak.text),
+      JSON.stringify(approvalLeak));
+    assert('exec approval reply coalesce vendor patch exists',
+      vendorPatchSrc.includes('20260709-coalesce-exec-approval-reply-v1')
+      && vendorPatchSrc.includes('ensureExecApprovalReplyCoalescePatch')
+      && vendorPatchSrc.includes('approval-reply-coalesce'),
+      'missing exec approval reply coalesce patch');
 
     let hasUsableSqlite = true;
     try {

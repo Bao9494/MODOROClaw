@@ -1,7 +1,7 @@
 {
   "generatedBy": "electron/scripts/generate-system-map.js",
   "counts": {
-    "apiRoutes": 89,
+    "apiRoutes": 90,
     "ipcHandlers": 235,
     "preloadBridges": 228,
     "dashboardPages": 21,
@@ -622,6 +622,15 @@
     },
     {
       "path": "/api/telegram/directory/refresh",
+      "sources": [
+        "electron/lib/cron-api.js"
+      ],
+      "kinds": [
+        "local-api"
+      ]
+    },
+    {
+      "path": "/api/telegram/member",
       "sources": [
         "electron/lib/cron-api.js"
       ],
@@ -3012,7 +3021,7 @@
     },
     {
       "path": "electron/lib/cron-api.js",
-      "bytes": 184128
+      "bytes": 186731
     },
     {
       "path": "electron/lib/cron.js",
@@ -3028,19 +3037,19 @@
     },
     {
       "path": "electron/lib/channels.js",
-      "bytes": 96278
+      "bytes": 96705
     },
     {
       "path": "electron/lib/fb-schedule.js",
       "bytes": 94418
     },
     {
-      "path": "electron/lib/gateway.js",
-      "bytes": 84512
+      "path": "electron/lib/vendor-patches.js",
+      "bytes": 85339
     },
     {
-      "path": "electron/lib/vendor-patches.js",
-      "bytes": 82721
+      "path": "electron/lib/gateway.js",
+      "bytes": 84512
     },
     {
       "path": "electron/lib/runtime-installer.js",

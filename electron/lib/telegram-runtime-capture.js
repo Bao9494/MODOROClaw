@@ -22,6 +22,10 @@ const {
 const {
   appendTelegramHistoryEvent,
 } = require('./telegram-history-archive');
+const {
+  normalizeTelegramMemberMetadata,
+  saveTelegramMemberMetadata,
+} = require('./telegram-member-metadata');
 
 const TELEGRAM_USERS_PROFILE_DIR = path.join('memory', 'telegram-users');
 const TELEGRAM_GROUPS_PROFILE_DIR = path.join('memory', 'telegram-groups');
@@ -96,6 +100,8 @@ chatId: ${chatId || ''}
 senderId: ${senderId || ''}
 chatType: ${chatType || 'unknown'}
 role: ${compactRuntimeText(params.role || params.senderRole || 'unknown', 40)}
+memberStatus: ${compactRuntimeText(params.memberStatus || 'unknown', 40)}
+memberTitle: ${quoteFrontMatter(params.memberTitle || params.customTitle || '')}
 label: ${quoteFrontMatter(title)}
 lastSeen: ${now}
 msgCount: 0
@@ -214,6 +220,11 @@ function captureTelegramRuntimeEvent(raw = {}) {
   const text = compactRuntimeText(raw.text || raw.body || raw.message || raw.caption || result.text || result.caption || '', 260);
   const label = chatLabel(chat, raw) || `Telegram ${chatId}`;
   const timestamp = eventTimestamp(raw);
+  const memberMetadata = normalizeTelegramMemberMetadata({
+    ...raw,
+    chatId,
+    userId: senderId,
+  });
   const tg = require('./telegram-memory');
   const conversation = tg.ensureTelegramConversationProfile({
     telegramChatId: chatId,
@@ -247,7 +258,12 @@ function captureTelegramRuntimeEvent(raw = {}) {
     senderName: senderLabel(sender, raw) || senderId,
     senderUsername: raw.senderUsername || sender.username || '',
     senderRole: raw.senderRole || raw.fromRole || '',
+    memberStatus: memberMetadata.memberStatus,
+    memberTitle: memberMetadata.memberTitle,
   }) : null;
+  if (senderId && memberMetadata.memberStatus && memberMetadata.memberStatus !== 'unknown') {
+    try { saveTelegramMemberMetadata({ ...memberMetadata, chatId, userId: senderId, source: raw.source || `runtime-${direction}` }); } catch {}
+  }
   const sessionKey = compactRuntimeText(raw.sessionKey || raw.agentSessionKey || raw.childSessionKey || '', 260);
   const binding = sessionKey ? bindTelegramSession({
     chatId,
@@ -275,6 +291,8 @@ function captureTelegramRuntimeEvent(raw = {}) {
     senderId,
     senderName: senderLabel(sender, raw) || '',
     senderRole: raw.senderRole || raw.fromRole || '',
+    memberStatus: memberMetadata.memberStatus,
+    memberTitle: memberMetadata.memberTitle,
     chatType,
     label,
     direction,
@@ -292,6 +310,7 @@ function captureTelegramRuntimeEvent(raw = {}) {
     binding,
     messageRef,
     historyAppend,
+    memberMetadata,
   };
 }
 
