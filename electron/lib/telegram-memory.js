@@ -21,6 +21,7 @@ const {
   sortTelegramDirectoryEntries,
   filterTelegramDirectoryEntries,
   summarizeTelegramDirectory,
+  normalizeTelegramAliases,
 } = require('./telegram-directory');
 const {
   buildTelegramInboundContext,
@@ -142,7 +143,7 @@ function writeTelegramConversationSettings(settings, workspace = getWorkspace())
       responseMode: policy.responseMode,
       toolScope: policy.toolScope,
       enabled: policy.enabled,
-      aliases: value.aliases || value.alias || [],
+      aliases: normalizeTelegramAliases(value.aliases || value.alias || []),
       updatedAt: value.updatedAt || new Date().toISOString(),
     };
   }
@@ -724,6 +725,11 @@ function saveTelegramConversationSettings(input = {}) {
       responseMode: item.responseMode || item.mode || prev.responseMode,
       enabled: item.enabled != null ? item.enabled : prev.enabled,
     });
+    const aliasesInput = Object.prototype.hasOwnProperty.call(item, 'aliases')
+      ? item.aliases
+      : Object.prototype.hasOwnProperty.call(item, 'alias')
+        ? item.alias
+        : prev.aliases;
     next[telegramEntityId(chatId)] = {
       chatId,
       entityId: telegramEntityId(chatId),
@@ -735,7 +741,7 @@ function saveTelegramConversationSettings(input = {}) {
       responseMode: policy.responseMode,
       toolScope: policy.toolScope,
       enabled: policy.enabled,
-      aliases: item.aliases || item.alias || prev.aliases || [],
+      aliases: normalizeTelegramAliases(aliasesInput || []),
       updatedAt: new Date().toISOString(),
     };
   }

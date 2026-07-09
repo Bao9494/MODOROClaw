@@ -339,6 +339,29 @@ async function run() {
       && savedRow.responseMode === 'all'
       && savedRow.toolScope === 'internal',
       JSON.stringify(savedRow));
+    const savedAliases = tg.saveTelegramConversationSettings({
+      conversations: [{
+        chatId: '-1008888888888',
+        chatType: 'supergroup',
+        role: 'customer',
+        aliases: 'Alias A, Alias B\nAlias A',
+        label: 'Alias Normalized Group',
+        enabled: true,
+      }],
+    });
+    const aliasRow = (savedAliases.conversations || []).find(c => c.chatId === '-1008888888888');
+    const aliasRawSetting = tg.readTelegramConversationSettings()[tg.telegramEntityId('-1008888888888')];
+    const aliasLookup = tg.findTelegramConversations({ query: 'Alias B', autoMode: true, enabled: true });
+    assert('telegram conversation settings normalize editable aliases',
+      aliasRow
+      && Array.isArray(aliasRow.aliases)
+      && Array.isArray(aliasRawSetting?.aliases)
+      && aliasRawSetting.aliases.length === 2
+      && aliasRow.aliases.length === 2
+      && aliasRow.aliases.includes('Alias A')
+      && aliasRow.aliases.includes('Alias B')
+      && aliasLookup.picked === '-1008888888888',
+      JSON.stringify({ aliasRawSetting, aliasRow, aliasLookup }));
     const directoryList = tg.listTelegramDirectory({ query: 'LLK-999999', kind: 'group', enabled: true });
     assert('telegram directory lookup respects settings override over cache',
       directoryList.count === 1
