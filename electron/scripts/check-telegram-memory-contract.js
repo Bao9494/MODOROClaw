@@ -530,6 +530,12 @@ async function run() {
       && vendorPatchSrc.includes('try9BizClawTelegramRoleLookupFastPath')
       && vendorPatchSrc.includes('fast-telegram-role-lookup'),
       'missing Telegram fast role lookup patch');
+    assert('Telegram provider timeout guard vendor patch exists',
+      vendorPatchSrc.includes('20260709-telegram-provider-timeout-guard-v1')
+      && vendorPatchSrc.includes('ensureTelegramProviderTimeoutGuardPatch')
+      && vendorPatchSrc.includes('telegram-provider-timeout')
+      && vendorPatchSrc.includes('providerTimeoutSettled'),
+      'missing Telegram provider timeout guard patch');
     const approvalLeak = channels.filterSensitiveOutput([
       'Approval required.',
       'Run:',

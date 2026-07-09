@@ -1216,6 +1216,138 @@ function ensureTelegramFastRoleLookupPatch(vendorDir, homeDir) {
   console.warn('[openclaw-latency] telegram-fast-role-lookup: no telegram bot dist file found');
 }
 
+function ensureTelegramProviderTimeoutGuardPatch(vendorDir, homeDir) {
+  const distDir = _getOpenclawDistDir(vendorDir);
+  if (!distDir) return;
+  const files = fs.readdirSync(distDir).filter(f => f.startsWith('bot-') && f.endsWith('.js'));
+  const MARKER = '20260709-telegram-provider-timeout-guard-v1';
+  const helperAnchor = 'const dispatchTelegramMessage = async ({ context, bot, cfg, runtime, replyToMode, streamMode, textLimit, telegramCfg, telegramDeps = defaultTelegramBotDeps, opts }) => {';
+  const helperCode =
+    'const MODOROCLAW_TELEGRAM_PROVIDER_TIMEOUT_GUARD_MARKER = "' + MARKER + '";\n' +
+    'function resolve9BizClawTelegramProviderTimeoutMs(telegramCfg, cfg) {\n' +
+    '\tconst raw = Number(process.env.MODOROCLAW_TELEGRAM_PROVIDER_TIMEOUT_MS || telegramCfg?.providerTimeoutMs || cfg?.telegram?.providerTimeoutMs || 9e4);\n' +
+    '\tif (!Number.isFinite(raw)) return 9e4;\n' +
+    '\treturn Math.min(18e4, Math.max(3e4, Math.floor(raw)));\n' +
+    '}\n' +
+    'async function run9BizClawTelegramProviderTimeoutGuard({ promise, timeoutMs, onTimeout, logTelegramDiag }) {\n' +
+    '\tlet timer;\n' +
+    '\tlet providerTimeoutSettled = false;\n' +
+    '\treturn await new Promise((resolve, reject) => {\n' +
+    '\t\ttimer = setTimeout(() => {\n' +
+    '\t\t\tproviderTimeoutSettled = true;\n' +
+    '\t\t\tPromise.resolve(onTimeout()).then(resolve, reject);\n' +
+    '\t\t}, timeoutMs);\n' +
+    '\t\tPromise.resolve(promise).then((value) => {\n' +
+    '\t\t\tif (providerTimeoutSettled) { try { logTelegramDiag("telegram-provider-late-result-suppressed", `timeoutMs=${timeoutMs} marker=${MODOROCLAW_TELEGRAM_PROVIDER_TIMEOUT_GUARD_MARKER}`); } catch {} return; }\n' +
+    '\t\t\tproviderTimeoutSettled = true;\n' +
+    '\t\t\tclearTimeout(timer);\n' +
+    '\t\t\tresolve(value);\n' +
+    '\t\t}, (err) => {\n' +
+    '\t\t\tif (providerTimeoutSettled) { try { logTelegramDiag("telegram-provider-late-error-suppressed", `timeoutMs=${timeoutMs} marker=${MODOROCLAW_TELEGRAM_PROVIDER_TIMEOUT_GUARD_MARKER}`); } catch {} return; }\n' +
+    '\t\t\tproviderTimeoutSettled = true;\n' +
+    '\t\t\tclearTimeout(timer);\n' +
+    '\t\t\treject(err);\n' +
+    '\t\t});\n' +
+    '\t});\n' +
+    '}\n' +
+    helperAnchor;
+  const beforeTryAnchor = '\tlet dispatchError;\n\ttry {';
+  const beforeTryCode =
+    '\tlet dispatchError;\n' +
+    '\tlet providerTimeoutTriggered = false;\n' +
+    '\tconst providerTimeoutMs = resolve9BizClawTelegramProviderTimeoutMs(telegramCfg, cfg);\n' +
+    '\tconst shouldSuppress9BizClawProviderEvent = (kind) => {\n' +
+    '\t\tif (!providerTimeoutTriggered) return false;\n' +
+    '\t\tlogTelegramDiag("telegram-provider-late-callback-suppressed", `kind=${kind} timeoutMs=${providerTimeoutMs} marker=${MODOROCLAW_TELEGRAM_PROVIDER_TIMEOUT_GUARD_MARKER}`);\n' +
+    '\t\treturn true;\n' +
+    '\t};\n' +
+    '\ttry {';
+  const callStartAnchor = '\t\t({queuedFinal} = await telegramDeps.dispatchReplyWithBufferedBlockDispatcher({';
+  const callStartCode = '\t\tconst providerReplyPromise = telegramDeps.dispatchReplyWithBufferedBlockDispatcher({';
+  const callEndAnchor =
+    '\t\t}));\n' +
+    '\t\tlogTelegramDiag("reply-dispatch-done", `queuedFinal=${queuedFinal}`);';
+  const callEndCode =
+    '\t\t});\n' +
+    '\t\t({queuedFinal} = await run9BizClawTelegramProviderTimeoutGuard({\n' +
+    '\t\t\tpromise: providerReplyPromise,\n' +
+    '\t\t\ttimeoutMs: providerTimeoutMs,\n' +
+    '\t\t\tlogTelegramDiag,\n' +
+    '\t\t\tonTimeout: async () => {\n' +
+    '\t\t\t\tproviderTimeoutTriggered = true;\n' +
+    '\t\t\t\tlogTelegramDiag("telegram-provider-timeout", `timeoutMs=${providerTimeoutMs} marker=${MODOROCLAW_TELEGRAM_PROVIDER_TIMEOUT_GUARD_MARKER}`);\n' +
+    '\t\t\t\tconst delivered = await sendPayload({ text: "Lu\\u1ed3ng AI \\u0111ang ph\\u1ea3n h\\u1ed3i qu\\u00e1 l\\u00e2u n\\u00ean em \\u0111\\u00e3 ng\\u1eaft \\u0111\\u1ec3 tr\\u00e1nh treo. Anh th\\u1eed l\\u1ea1i gi\\u00fap em.", isError: false });\n' +
+    '\t\t\t\treturn { queuedFinal: delivered };\n' +
+    '\t\t\t}\n' +
+    '\t\t}));\n' +
+    '\t\tlogTelegramDiag("reply-dispatch-done", `queuedFinal=${queuedFinal}`);';
+  const callbackAnchors = [
+    {
+      name: 'deliver',
+      anchor: '\t\t\t\tdeliver: async (payload, info) => {\n',
+      replacement: '\t\t\t\tdeliver: async (payload, info) => {\n\t\t\t\t\tif (shouldSuppress9BizClawProviderEvent("deliver")) return;\n',
+    },
+    {
+      name: 'onSkip',
+      anchor: '\t\t\t\tonSkip: (payload, info) => {\n',
+      replacement: '\t\t\t\tonSkip: (payload, info) => {\n\t\t\t\t\tif (shouldSuppress9BizClawProviderEvent("skip")) return;\n',
+    },
+    {
+      name: 'onError',
+      anchor: '\t\t\t\tonError: (err, info) => {\n',
+      replacement: '\t\t\t\tonError: (err, info) => {\n\t\t\t\t\tif (shouldSuppress9BizClawProviderEvent("error")) return;\n',
+    },
+  ];
+  const scopedIndexOf = (src, startNeedle, needle) => {
+    const start = src.indexOf(startNeedle);
+    return start >= 0 ? src.indexOf(needle, start) : -1;
+  };
+  const scopedReplace = (src, startNeedle, needle, replacement) => {
+    const idx = scopedIndexOf(src, startNeedle, needle);
+    if (idx < 0) return src;
+    return src.slice(0, idx) + replacement + src.slice(idx + needle.length);
+  };
+
+  for (const file of files) {
+    const fp = path.join(distDir, file);
+    let src = fs.readFileSync(fp, 'utf-8');
+    if (!src.includes(helperAnchor)) continue;
+    if (src.includes(MARKER) || src.includes('run9BizClawTelegramProviderTimeoutGuard')) {
+      console.log('[openclaw-latency] telegram-provider-timeout: already patched');
+      return;
+    }
+    for (const [label, anchor] of [
+      ['helper', helperAnchor],
+      ['before-try', beforeTryAnchor],
+      ['call-start', callStartAnchor],
+      ['call-end', callEndAnchor],
+    ]) {
+      if (!src.includes(anchor)) {
+        console.warn('[openclaw-latency] telegram-provider-timeout: ' + label + ' anchor not found in ' + file);
+        _logPatchFailure(homeDir, 'ensureTelegramProviderTimeoutGuardPatch', `${label} anchor missing in ${file}`);
+        return;
+      }
+    }
+    for (const item of callbackAnchors) {
+      if (scopedIndexOf(src, callStartAnchor, item.anchor) < 0) {
+        console.warn('[openclaw-latency] telegram-provider-timeout: ' + item.name + ' anchor not found in ' + file);
+        _logPatchFailure(homeDir, 'ensureTelegramProviderTimeoutGuardPatch', `${item.name} anchor missing in ${file}`);
+        return;
+      }
+    }
+    src = src
+      .replace(helperAnchor, helperCode)
+      .replace(beforeTryAnchor, beforeTryCode)
+      .replace(callStartAnchor, callStartCode)
+      .replace(callEndAnchor, callEndCode);
+    for (const item of callbackAnchors) src = scopedReplace(src, callStartCode, item.anchor, item.replacement);
+    fs.writeFileSync(fp, src, 'utf-8');
+    console.log('[openclaw-latency] telegram-provider-timeout: applied to ' + file);
+    return;
+  }
+  console.warn('[openclaw-latency] telegram-provider-timeout: no telegram bot dist file found');
+}
+
 function ensureOpenclawLatencyPatches(vendorDir, homeDir) {
   if (process.env.MODOROCLAW_DISABLE_LATENCY_PATCHES === '1') {
     console.log('[openclaw-latency] disabled via MODOROCLAW_DISABLE_LATENCY_PATCHES=1');
@@ -1228,6 +1360,7 @@ function ensureOpenclawLatencyPatches(vendorDir, homeDir) {
   ensureEmbeddedPiStaticModelResolvePatch(vendorDir, homeDir);
   ensureTelegramFastIdLookupPatch(vendorDir, homeDir);
   ensureTelegramFastRoleLookupPatch(vendorDir, homeDir);
+  ensureTelegramProviderTimeoutGuardPatch(vendorDir, homeDir);
 }
 
 function ensureExecApprovalReplyCoalescePatch(vendorDir, homeDir) {
@@ -1561,5 +1694,6 @@ module.exports = {
   ensureSessionFreezePatches,
   ensureOpenclawLatencyPatches,
   ensureExecApprovalReplyCoalescePatch,
+  ensureTelegramProviderTimeoutGuardPatch,
   applyAllVendorPatches,
 };
