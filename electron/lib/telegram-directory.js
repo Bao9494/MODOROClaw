@@ -70,6 +70,18 @@ function buildTelegramDirectoryEntry(row = {}) {
   const policy = buildTelegramConversationPolicy(row);
   const label = compactTelegramDirectoryText(row.label || row.title || row.username || `Telegram ${chatId}`, 120);
   const username = compactTelegramDirectoryText(row.username || row.handle || '', 120);
+  const participants = normalizeTelegramAliases(row.participants || row.participantNames || []);
+  const threadIds = normalizeTelegramAliases(row.threadIds || row.topicIds || []);
+  const historyStats = row.historyStats && typeof row.historyStats === 'object' && !Array.isArray(row.historyStats)
+    ? {
+        source: compactTelegramDirectoryText(row.historyStats.source || '', 60),
+        scannedRows: Number(row.historyStats.scannedRows) || 0,
+        archiveRows: Number(row.historyStats.archiveRows) || 0,
+        archiveBytes: Number(row.historyStats.archiveBytes) || 0,
+        participantCount: Number(row.historyStats.participantCount) || participants.length,
+        threadCount: Number(row.historyStats.threadCount) || threadIds.length,
+      }
+    : {};
   const aliases = mergeTelegramAliases(
     row.aliases,
     row.alias,
@@ -86,6 +98,8 @@ function buildTelegramDirectoryEntry(row = {}) {
     label,
     username,
     aliases.join(' '),
+    participants.join(' '),
+    threadIds.join(' '),
     row.summary || '',
     sources.join(' '),
   ].filter(Boolean).join(' '));
@@ -115,6 +129,9 @@ function buildTelegramDirectoryEntry(row = {}) {
     msgCount: Number(row.msgCount) || 0,
     summary: compactTelegramDirectoryText(row.summary || '', 260),
     sources,
+    participants,
+    threadIds,
+    historyStats,
     sourceCount: sources.length,
     mtimeMs: Number(row.mtimeMs) || 0,
     searchText,

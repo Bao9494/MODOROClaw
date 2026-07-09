@@ -217,6 +217,47 @@ async function run() {
       && archivedThread[0].memberTitle === 'Ops Admin'
       && archivedThread[0].text.includes('cap nhat memory'),
       JSON.stringify(archivedThread));
+    historyArchive.appendTelegramHistoryEvents(tmp, [
+      {
+        direction: 'inbound',
+        chatId: '-1005555555555',
+        chatType: 'supergroup',
+        label: 'History Rich Telegram Group',
+        senderId: '111111111',
+        senderName: 'Anh Bao',
+        threadId: '42',
+        messageId: '9001',
+        text: 'Khach dang quan tam goi SaaS premium va can cham soc gan gui.',
+        timestamp: Date.parse('2026-07-09T09:00:00.000Z'),
+      },
+      {
+        direction: 'outbound',
+        chatId: '-1005555555555',
+        chatType: 'supergroup',
+        label: 'History Rich Telegram Group',
+        senderId: '222222222',
+        senderName: 'LLD_ASSISTANT',
+        threadId: '42',
+        messageId: '9002',
+        text: 'Em se uu tien phan hoi ngan gon va xac nhan dung nhu cau premium.',
+        timestamp: Date.parse('2026-07-09T09:01:00.000Z'),
+      },
+    ]);
+    const historyOnlySeeded = tg.seedTelegramConversationsFromRuntime();
+    const historyOnlyConversation = historyOnlySeeded.seeded.find(c => c.chatId === '-1005555555555');
+    const historyOnlyProfile = tg.readTelegramConversationProfile('-1005555555555', 12000)?.content || '';
+    assert('telegram seed discovers history-only chats and auto-fills rich profile sections',
+      historyOnlyConversation
+      && historyOnlyConversation.sources.includes('history-archive')
+      && historyOnlyConversation.msgCount >= 2
+      && historyOnlyConversation.summary.includes('SaaS premium')
+      && historyOnlyProfile.includes('History Rich Telegram Group')
+      && historyOnlyProfile.includes('Nguoi tham gia gan day: Anh Bao, LLD_ASSISTANT')
+      && historyOnlyProfile.includes('Topic/thread gan day: 42')
+      && historyOnlyProfile.includes('So tin da luu: 2')
+      && historyOnlyProfile.includes('SaaS premium')
+      && !historyOnlyProfile.includes('## Ho so doi tuong\n(chua co)'),
+      JSON.stringify({ historyOnlyConversation, historyOnlyProfile }));
     runtimeCapture.ensureTelegramTierProfile({
       chatId: '-1007777777777',
       chatType: 'supergroup',

@@ -27,12 +27,15 @@ const {
   buildTelegramInboundContext,
   formatTelegramInboundContextBlock,
 } = require('./telegram-inbound-context');
+const telegramHistoryArchive = require('./telegram-history-archive');
 
 const SETTINGS_FILE = 'telegram-conversation-settings.json';
 const DIRECTORY_FILE = 'telegram-directory.json';
 const PROFILE_DIR = path.join('memory', 'telegram-chats');
 const USER_PROFILE_DIR = path.join('memory', 'telegram-users');
 const GROUP_PROFILE_DIR = path.join('memory', 'telegram-groups');
+const TELEGRAM_HISTORY_SCAN_TAIL_BYTES = 768 * 1024;
+const TELEGRAM_HISTORY_SCAN_MAX_ROWS = 160;
 const TELEGRAM_PROFILE_SECTION_MAP = {
   profile: 'Ho so doi tuong',
   knowledge: 'Kien thuc rieng can nap',
@@ -100,6 +103,25 @@ function stripTelegramEntityPrefix(value) {
 
 function quoteTelegramFrontMatter(value) {
   return JSON.stringify(compactTelegramText(value, 220));
+}
+
+function normalizeTelegramScanList(value, { maxItems = 12, maxChars = 120 } = {}) {
+  const input = Array.isArray(value) ? value : String(value || '').split(/[,\n;]/);
+  return [...new Set(input
+    .map(item => compactTelegramText(item, maxChars))
+    .filter(Boolean))]
+    .slice(0, Math.max(1, Number(maxItems) || 12));
+}
+
+function pickLatestTelegramTimestamp(a, b) {
+  const values = [a, b].map(value => compactTelegramText(value || '', 80)).filter(Boolean);
+  if (!values.length) return '';
+  const parsed = values
+    .map(value => ({ value, time: Date.parse(value) }))
+    .filter(item => Number.isFinite(item.time));
+  if (!parsed.length) return values[0];
+  parsed.sort((x, y) => y.time - x.time);
+  return parsed[0].value;
 }
 
 function getTelegramSettingsPath(workspace = getWorkspace()) {
@@ -206,7 +228,25 @@ function addTelegramConversationCandidate(map, candidate = {}) {
     toolScope: candidate.toolScope || prev.toolScope,
   });
   const label = compactTelegramText(candidate.label || candidate.title || candidate.username || prev.label || '', 120);
-  const summary = compactTelegramText(candidate.summary || prev.summary || '', 220);
+  const candidateSummary = compactTelegramText(candidate.summary || '', 220);
+  const prevSummary = compactTelegramText(prev.summary || '', 220);
+  const summary = candidateSummary && (!prevSummary || source !== 'profile')
+    ? candidateSummary
+    : prevSummary;
+  const candidateMsgCount = Number(candidate.msgCount);
+  const prevMsgCount = Number(prev.msgCount) || 0;
+  const participants = normalizeTelegramScanList([
+    ...(Array.isArray(prev.participants) ? prev.participants : []),
+    ...(Array.isArray(candidate.participants) ? candidate.participants : []),
+  ], { maxItems: 16, maxChars: 120 });
+  const threadIds = normalizeTelegramScanList([
+    ...(Array.isArray(prev.threadIds) ? prev.threadIds : []),
+    ...(Array.isArray(candidate.threadIds) ? candidate.threadIds : []),
+  ], { maxItems: 16, maxChars: 40 });
+  const historyStats = {
+    ...(prev.historyStats && typeof prev.historyStats === 'object' ? prev.historyStats : {}),
+    ...(candidate.historyStats && typeof candidate.historyStats === 'object' ? candidate.historyStats : {}),
+  };
   const next = {
     ...prev,
     chatId,
@@ -224,10 +264,15 @@ function addTelegramConversationCandidate(map, candidate = {}) {
     aliases: candidate.aliases || candidate.alias || prev.aliases || [],
     username: candidate.username || candidate.handle || prev.username || '',
     profilePath: candidate.profilePath || prev.profilePath || '',
-    lastSeen: candidate.lastSeen || prev.lastSeen || '',
-    msgCount: Number.isFinite(Number(candidate.msgCount)) ? Number(candidate.msgCount) : (Number(prev.msgCount) || 0),
+    lastSeen: pickLatestTelegramTimestamp(candidate.lastSeen, prev.lastSeen),
+    msgCount: Number.isFinite(candidateMsgCount) && candidateMsgCount > 0
+      ? Math.max(candidateMsgCount, prevMsgCount)
+      : prevMsgCount,
     summary,
     sources: [...new Set([...prevSources, source].filter(Boolean))],
+    participants,
+    threadIds,
+    historyStats,
     mtimeMs: Math.max(Number(prev.mtimeMs) || 0, Number(candidate.mtimeMs) || 0),
   };
   map.set(chatId, next);
@@ -442,6 +487,9 @@ function writeTelegramDirectoryCache(input = {}, workspace = getWorkspace()) {
       msgCount: Number(entry.msgCount) || 0,
       summary: entry.summary || '',
       sources: entry.sources || [],
+      participants: entry.participants || [],
+      threadIds: entry.threadIds || [],
+      historyStats: entry.historyStats || {},
       mtimeMs: Number(entry.mtimeMs) || 0,
     }));
   writeJsonAtomic(p, {
@@ -600,6 +648,115 @@ function collectOpenclawSessionCandidates(map) {
   }
 }
 
+function telegramHistoryWorkspaceRoots() {
+  const roots = [
+    getOpenclawAgentWorkspace(),
+    getWorkspace(),
+  ].filter(Boolean);
+  return [...new Set(roots.map(root => path.resolve(root)))];
+}
+
+function readTelegramHistoryTailRows(workspace, chatId) {
+  const file = telegramHistoryArchive._fileFor(workspace, chatId);
+  if (!file) return null;
+  let stat = null;
+  try { stat = fs.statSync(file); } catch { return null; }
+  if (!stat.isFile() || stat.size <= 0) return null;
+  let raw = '';
+  try {
+    if (stat.size > TELEGRAM_HISTORY_SCAN_TAIL_BYTES) {
+      const fd = fs.openSync(file, 'r');
+      try {
+        const buf = Buffer.alloc(TELEGRAM_HISTORY_SCAN_TAIL_BYTES);
+        const n = fs.readSync(fd, buf, 0, TELEGRAM_HISTORY_SCAN_TAIL_BYTES, stat.size - TELEGRAM_HISTORY_SCAN_TAIL_BYTES);
+        raw = buf.toString('utf-8', 0, n);
+      } finally {
+        fs.closeSync(fd);
+      }
+      const firstNewline = raw.indexOf('\n');
+      if (firstNewline >= 0) raw = raw.slice(firstNewline + 1);
+    } else {
+      raw = fs.readFileSync(file, 'utf-8');
+    }
+  } catch {
+    return null;
+  }
+  const rows = [];
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line) continue;
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed && typeof parsed === 'object') rows.push(parsed);
+    } catch {}
+  }
+  return {
+    file,
+    mtimeMs: stat.mtimeMs,
+    archiveBytes: stat.size,
+    rows: rows.slice(-TELEGRAM_HISTORY_SCAN_MAX_ROWS),
+    scannedRows: rows.length,
+  };
+}
+
+function telegramHistoryRowTimestamp(row = {}) {
+  const n = Number(row.ts || row.timestamp);
+  if (Number.isFinite(n) && n > 0) return n > 100000000000 ? Math.floor(n) : Math.floor(n * 1000);
+  const parsed = Date.parse(row.iso || row.at || row.createdAt || '');
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function buildTelegramHistorySummary(rows = []) {
+  const recent = rows
+    .filter(row => row && compactTelegramText(row.text || '', 120))
+    .slice(-8);
+  const parts = recent.map(row => {
+    const speaker = compactTelegramText(row.senderName || row.senderId || row.direction || 'Telegram', 60);
+    const text = compactTelegramText(row.text || '', 100);
+    return speaker ? `${speaker}: ${text}` : text;
+  }).filter(Boolean);
+  return compactTelegramText(parts.join(' | '), 500);
+}
+
+function collectHistoryArchiveCandidates(map) {
+  for (const root of telegramHistoryWorkspaceRoots()) {
+    let chatIds = [];
+    try { chatIds = telegramHistoryArchive.listTelegramHistoryChats(root); } catch { chatIds = []; }
+    for (const chatId of chatIds) {
+      const scan = readTelegramHistoryTailRows(root, chatId);
+      const rows = scan?.rows || [];
+      if (!rows.length) continue;
+      const latest = rows.reduce((best, row) => {
+        return telegramHistoryRowTimestamp(row) >= telegramHistoryRowTimestamp(best) ? row : best;
+      }, rows[0]);
+      const labelRow = [...rows].reverse().find(row => compactTelegramText(row.label || '', 120)) || latest;
+      const chatTypeRow = [...rows].reverse().find(row => normalizeTelegramChatType(row.chatType || '') !== 'unknown') || latest;
+      const participants = normalizeTelegramScanList(rows.map(row => row.senderName || row.senderId || ''), { maxItems: 12, maxChars: 80 });
+      const threadIds = normalizeTelegramScanList(rows.map(row => row.threadId || ''), { maxItems: 12, maxChars: 40 });
+      const latestTs = telegramHistoryRowTimestamp(latest);
+      addTelegramConversationCandidate(map, {
+        chatId,
+        chatType: chatTypeRow.chatType || (String(chatId).startsWith('-') ? 'supergroup' : ''),
+        label: labelRow.label || labelRow.title || `Telegram ${chatId}`,
+        lastSeen: latest.iso || (latestTs ? new Date(latestTs).toISOString() : ''),
+        msgCount: rows.length,
+        summary: buildTelegramHistorySummary(rows),
+        participants,
+        threadIds,
+        historyStats: {
+          source: 'history-archive',
+          scannedRows: rows.length,
+          archiveRows: scan.scannedRows,
+          archiveBytes: scan.archiveBytes,
+          participantCount: participants.length,
+          threadCount: threadIds.length,
+        },
+        mtimeMs: scan.mtimeMs,
+        source: 'history-archive',
+      });
+    }
+  }
+}
+
 function discoverTelegramConversationCandidates({ includeDirectoryCache = true } = {}) {
   const map = new Map();
   collectOpenclawConfigCandidates(map);
@@ -607,6 +764,7 @@ function discoverTelegramConversationCandidates({ includeDirectoryCache = true }
   collectRuntimeLogCandidates(map);
   collectProviderCacheCandidates(map);
   collectOpenclawSessionCandidates(map);
+  collectHistoryArchiveCandidates(map);
   collectProfileCandidates(map);
   if (includeDirectoryCache) collectDirectoryCacheCandidates(map);
   collectSettingsCandidates(map);
@@ -776,10 +934,16 @@ function seedTelegramConversationsFromRuntime() {
       sources: conversation.sources || [],
       msgCount: conversation.msgCount || 0,
       lastSeen: conversation.lastSeen || '',
+      participants: row.participants || conversation.participants || [],
+      threadIds: row.threadIds || conversation.threadIds || [],
+      historyStats: row.historyStats || conversation.historyStats || {},
     });
     if (profile) {
       seeded.push({
         ...conversation,
+        participants: row.participants || conversation.participants || [],
+        threadIds: row.threadIds || conversation.threadIds || [],
+        historyStats: row.historyStats || conversation.historyStats || {},
         profilePath: profile.profilePath,
         hasProfile: true,
         created: !existed,
@@ -841,6 +1005,9 @@ function ensureTelegramConversationProfile(source = {}) {
     sources: conversation.sources || source.sources || (source.source ? [source.source] : []),
     msgCount: Number(conversation.msgCount || source.msgCount) || 0,
     lastSeen: conversation.lastSeen || source.lastSeen || '',
+    participants: source.participants || conversation.participants || [],
+    threadIds: source.threadIds || conversation.threadIds || [],
+    historyStats: source.historyStats || conversation.historyStats || {},
   };
   if (!fs.existsSync(profilePath)) {
     const title = enriched.label || `Telegram ${enriched.chatId}`;
@@ -981,6 +1148,15 @@ function buildTelegramAutofillProfileSections(source = {}) {
   const msgCount = Number(source.msgCount) || 0;
   const lastSeen = compactTelegramText(source.lastSeen || '', 80);
   const username = compactTelegramText(source.username || source.handle || '', 120);
+  const historyStats = source.historyStats && typeof source.historyStats === 'object' ? source.historyStats : {};
+  const participants = normalizeTelegramScanList(
+    source.participants || historyStats.participants || [],
+    { maxItems: 12, maxChars: 80 }
+  );
+  const threadIds = normalizeTelegramScanList(
+    source.threadIds || historyStats.threadIds || [],
+    { maxItems: 12, maxChars: 40 }
+  );
   const profileLines = [];
   if (label) profileLines.push(`- Ten: ${label}`);
   if (chatId) profileLines.push(`- Telegram ID: ${chatId}`);
@@ -994,6 +1170,8 @@ function buildTelegramAutofillProfileSections(source = {}) {
   if (sources.length) profileLines.push(`- Nguon scan: ${sources.join(', ')}`);
   if (msgCount > 0) profileLines.push(`- So tin da luu: ${msgCount}`);
   if (lastSeen) profileLines.push(`- Lan thay cuoi: ${lastSeen}`);
+  if (participants.length) profileLines.push(`- Nguoi tham gia gan day: ${participants.join(', ')}`);
+  if (threadIds.length) profileLines.push(`- Topic/thread gan day: ${threadIds.join(', ')}`);
   if (summary) profileLines.push(`- Tom tat scan: ${summary}`);
 
   const knowledgeLines = [];
@@ -1001,6 +1179,8 @@ function buildTelegramAutofillProfileSections(source = {}) {
     knowledgeLines.push('- Ho so rieng cua chat nay va lich su Telegram da scan.');
   }
   if (summary) knowledgeLines.push(`- Tom tat scan: ${summary}`);
+  if (participants.length) knowledgeLines.push(`- Nguoi tham gia gan day can doi chieu: ${participants.join(', ')}`);
+  if (threadIds.length) knowledgeLines.push(`- Topic/thread gan day can doi chieu: ${threadIds.join(', ')}`);
   if (sources.length) knowledgeLines.push(`- Uu tien doi chieu voi nguon scan: ${sources.join(', ')}`);
 
   const interactionLines = [];
