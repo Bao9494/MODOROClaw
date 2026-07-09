@@ -217,6 +217,36 @@ async function run() {
       tierOnlyLookup.count >= 1
       && tierOnlyLookup.conversations.some(c => c.chatId === '-1007777777777' && c.directoryKind === 'group'),
       JSON.stringify(tierOnlyLookup));
+    assert('telegram private note helpers are exported',
+      typeof tg.appendTelegramConversationNote === 'function'
+      && typeof tg.deleteTelegramConversationNote === 'function',
+      'missing append/delete Telegram conversation note helpers');
+    if (typeof tg.appendTelegramConversationNote === 'function' && typeof tg.deleteTelegramConversationNote === 'function') {
+      const appendedNote = tg.appendTelegramConversationNote({
+        chatId: '-1007777777777',
+        chatType: 'supergroup',
+        role: 'internal',
+        label: 'Tier Only Telegram Group',
+        note: 'Khach nay thich trao doi ngan gon va can nhac lai bang gia truoc khi chot.',
+      });
+      const noteProfile = tg.readTelegramConversationProfile('-1007777777777', 8000);
+      assert('telegram private note append writes CEO notes section',
+        appendedNote?.success === true
+        && !!appendedNote.timestamp
+        && noteProfile?.content.includes('## CEO notes')
+        && noteProfile?.content.includes('Khach nay thich trao doi ngan gon'),
+        JSON.stringify({ appendedNote, content: noteProfile?.content }));
+      const deletedNote = tg.deleteTelegramConversationNote({
+        chatId: '-1007777777777',
+        noteTimestamp: appendedNote.timestamp,
+      });
+      const noteProfileAfterDelete = tg.readTelegramConversationProfile('-1007777777777', 8000);
+      assert('telegram private note delete removes only matching CEO note line',
+        deletedNote?.success === true
+        && noteProfileAfterDelete?.content.includes('## CEO notes')
+        && !noteProfileAfterDelete?.content.includes('Khach nay thich trao doi ngan gon'),
+        JSON.stringify({ deletedNote, content: noteProfileAfterDelete?.content }));
+    }
     assert('telegram entity id is stable', tg.telegramEntityId('-1003857797941') === 'telegram:-1003857797941');
     assert('telegram memory discovers OpenClaw session metadata',
       telegramMemorySrc.includes('collectOpenclawSessionCandidates')
@@ -247,8 +277,20 @@ async function run() {
       && sacredDataSrc.includes("'memory/telegram-groups'")
       && sacredDataSrc.includes("'telegram-history'"),
       'telegram history/profile tiers are not seeded/protected');
-    assert('telegram manager IPC handlers exist', dashboardSrc.includes("list-telegram-conversations") && dashboardSrc.includes("save-telegram-conversation-settings") && dashboardSrc.includes("seed-telegram-conversations"), 'missing dashboard IPC handlers');
-    assert('telegram manager preload bridge exists', preloadSrc.includes('listTelegramConversations') && preloadSrc.includes('saveTelegramConversationSettings') && preloadSrc.includes('readTelegramConversationMemory'), 'missing preload bridge');
+    assert('telegram manager IPC handlers exist',
+      dashboardSrc.includes("list-telegram-conversations")
+      && dashboardSrc.includes("save-telegram-conversation-settings")
+      && dashboardSrc.includes("seed-telegram-conversations")
+      && dashboardSrc.includes("append-telegram-conversation-note")
+      && dashboardSrc.includes("delete-telegram-conversation-note"),
+      'missing dashboard IPC handlers');
+    assert('telegram manager preload bridge exists',
+      preloadSrc.includes('listTelegramConversations')
+      && preloadSrc.includes('saveTelegramConversationSettings')
+      && preloadSrc.includes('readTelegramConversationMemory')
+      && preloadSrc.includes('appendTelegramConversationNote')
+      && preloadSrc.includes('deleteTelegramConversationNote'),
+      'missing preload bridge');
     assert('telegram manager UI exists',
       uiSrc.includes('tg-groups-list')
       && uiSrc.includes('tg-people-list')
@@ -256,7 +298,9 @@ async function run() {
       && uiSrc.includes("switchTelegramConversationTab('groups'")
       && uiSrc.includes("switchTelegramConversationTab('people'")
       && uiSrc.includes('updateTelegramConversationResponseMode')
-      && uiSrc.includes('setTelegramPaneEnabled'),
+      && uiSrc.includes('setTelegramPaneEnabled')
+      && uiSrc.includes('saveTelegramConversationNote')
+      && uiSrc.includes('deleteTelegramConversationNote'),
       'missing Telegram split manager UI');
 
     tg.writeTelegramDirectoryCache({

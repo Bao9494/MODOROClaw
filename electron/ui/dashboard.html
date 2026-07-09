@@ -10348,18 +10348,90 @@
         const modal = document.createElement('div');
         modal.id = 'telegram-memory-modal';
         modal.className = 'group-memory-modal';
+        modal.dataset.chatId = chatId;
+        modal.dataset.label = row.label || label || '';
+        modal.dataset.role = row.role || '';
+        modal.dataset.chatType = row.chatType || '';
         modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
         const body = result?.exists && result.content
           ? `<pre>${esc(result.content)}</pre>`
           : '<div class="tg-empty" style="padding:24px 12px">Chưa có hồ sơ Telegram cho conversation này.</div>';
+        const modalBody = (() => {
+          if (!(result?.exists && result.content)) return body;
+          const contentStripped = String(result.content || '').replace(/^---\n[\s\S]*?\n---\n?/, '');
+          let html = renderSimpleMarkdown(contentStripped);
+          html = html.replace(
+            /(<li>)<strong>(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})<\/strong>\s*(?:-|â€”)\s*/g,
+            (match, liTag, timestamp) => {
+              const tsEsc = esc(timestamp);
+              const tsCall = escAttr(escJs(timestamp));
+              return liTag + '<span style="display:inline-flex;align-items:center;gap:6px"><strong>' + tsEsc + '</strong>'
+                + '<button onclick="deleteTelegramConversationNote(\'' + tsCall + '\')" title="Xóa ghi chú này" style="background:none;border:none;color:var(--danger,#e74c3c);cursor:pointer;font-size:14px;padding:0 2px;line-height:1;opacity:0.6" onmouseenter="this.style.opacity=1" onmouseleave="this.style.opacity=0.6">x</button></span> - ';
+            }
+          );
+          return '<div class="zum-content">' + html + '</div>';
+        })();
         modal.innerHTML = `<div class="group-memory-content">
           <button class="group-memory-close" onclick="document.getElementById('telegram-memory-modal').remove()">×</button>
           <h3>${esc(label || chatId)}</h3>
-          ${body}
+          ${modalBody}
+          <div class="zum-footer" style="margin-top:14px">
+            <textarea id="tgm-note-input" placeholder="Ghi chú riêng của anh/chị về chat/khách Telegram này (không gửi cho họ)..." rows="2"></textarea>
+            <button id="tgm-save-btn" class="btn btn-primary btn-small" onclick="saveTelegramConversationNote()" style="margin-top:8px">Lưu ghi chú</button>
+          </div>
         </div>`;
         document.body.appendChild(modal);
       } catch (e) {
         showToast('Lỗi mở hồ sơ Telegram: ' + (e.message || e), 'error');
+      }
+    }
+
+    async function saveTelegramConversationNote() {
+      const modal = document.getElementById('telegram-memory-modal');
+      if (!modal) return;
+      const chatId = modal.dataset.chatId || '';
+      const noteEl = document.getElementById('tgm-note-input');
+      const note = String(noteEl?.value || '').trim();
+      if (!chatId) return;
+      if (!note) { showToast && showToast('Nhập ghi chú trước khi lưu'); return; }
+      const btn = document.getElementById('tgm-save-btn');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Đang lưu...';
+      }
+      try {
+        const res = await window.claw.appendTelegramConversationNote(chatId, note, {
+          label: modal.dataset.label || '',
+          role: modal.dataset.role || '',
+          chatType: modal.dataset.chatType || '',
+        });
+        if (!res?.success) throw new Error(res?.error || 'Không lưu được ghi chú');
+        if (noteEl) noteEl.value = '';
+        await viewTelegramConversationMemory(chatId, modal.dataset.label || chatId);
+        showToast('Đã lưu ghi chú Telegram', 'success');
+      } catch (e) {
+        showToast('Lỗi lưu ghi chú Telegram: ' + (e.message || e), 'error');
+      } finally {
+        const nextBtn = document.getElementById('tgm-save-btn');
+        if (nextBtn) {
+          nextBtn.disabled = false;
+          nextBtn.textContent = 'Lưu ghi chú';
+        }
+      }
+    }
+
+    async function deleteTelegramConversationNote(timestamp) {
+      const modal = document.getElementById('telegram-memory-modal');
+      if (!modal) return;
+      const chatId = modal.dataset.chatId || '';
+      if (!chatId || !timestamp) return;
+      try {
+        const res = await window.claw.deleteTelegramConversationNote(chatId, timestamp);
+        if (!res?.success) throw new Error(res?.error || 'Không xóa được ghi chú');
+        await viewTelegramConversationMemory(chatId, modal.dataset.label || chatId);
+        showToast('Đã xóa ghi chú Telegram', 'success');
+      } catch (e) {
+        showToast('Lỗi xóa ghi chú Telegram: ' + (e.message || e), 'error');
       }
     }
 

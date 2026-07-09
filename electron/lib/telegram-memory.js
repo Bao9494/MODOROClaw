@@ -866,6 +866,70 @@ function readTelegramConversationProfile(chatId, maxChars = 2500) {
   }
 }
 
+function sanitizeTelegramConversationNote(note, maxChars = 2000) {
+  return String(note || '')
+    .replace(/[\u0000-\u001F\u007F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, Math.max(1, Number(maxChars) || 2000));
+}
+
+function makeTelegramNoteTimestamp(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return new Date().toISOString().slice(0, 16).replace('T', ' ');
+  return d.toISOString().slice(0, 16).replace('T', ' ');
+}
+
+function ensureTelegramCeoNotesSection(content) {
+  const raw = String(content || '');
+  if (/(^|\n)## CEO notes\s*\n/i.test(raw)) return raw;
+  return raw.replace(/\s*$/, '\n\n## CEO notes\n');
+}
+
+function appendTelegramConversationNote(input = {}) {
+  try {
+    const chatId = sanitizeTelegramChatId(input.chatId || input.telegramChatId || input.targetChatId);
+    if (!chatId) return { success: false, error: 'invalid chatId' };
+    const note = sanitizeTelegramConversationNote(input.note);
+    if (!note) return { success: false, error: 'empty note' };
+    const conversation = ensureTelegramConversationProfile({
+      ...input,
+      telegramChatId: chatId,
+      chatId,
+    });
+    if (!conversation?.profilePath) return { success: false, error: 'profile not available' };
+    let content = '';
+    try { content = fs.readFileSync(conversation.profilePath, 'utf-8'); } catch {}
+    content = ensureTelegramCeoNotesSection(content);
+    const timestamp = makeTelegramNoteTimestamp(input.timestamp || new Date());
+    const line = `- **${timestamp}** - ${note}\n`;
+    content = content.replace(/(^|\n)(## CEO notes\s*\n)/i, (match, prefix, header) => `${prefix}${header}${line}`);
+    fs.writeFileSync(conversation.profilePath, content, 'utf-8');
+    return { success: true, timestamp, path: conversation.profilePath };
+  } catch (e) {
+    return { success: false, error: e?.message || String(e) };
+  }
+}
+
+function deleteTelegramConversationNote(input = {}) {
+  try {
+    const chatId = sanitizeTelegramChatId(input.chatId || input.telegramChatId || input.targetChatId);
+    const noteTimestamp = String(input.noteTimestamp || input.timestamp || '').trim().slice(0, 32);
+    if (!chatId || !noteTimestamp) return { success: false, error: 'missing params' };
+    const profilePath = getTelegramProfilePath(chatId);
+    if (!profilePath || !fs.existsSync(profilePath)) return { success: false, error: 'profile not found' };
+    const content = fs.readFileSync(profilePath, 'utf-8');
+    const escapedTs = noteTimestamp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const lineRegex = new RegExp('^- \\*\\*' + escapedTs + '\\*\\*\\s+-\\s+.*$\\n?', 'm');
+    const next = content.replace(lineRegex, '');
+    if (next === content) return { success: false, error: 'note not found' };
+    fs.writeFileSync(profilePath, next, 'utf-8');
+    return { success: true, path: profilePath };
+  } catch (e) {
+    return { success: false, error: e?.message || String(e) };
+  }
+}
+
 async function buildTelegramMemoryContext(source = {}) {
   const conversation = ensureTelegramConversationProfile(source);
   if (!conversation) return null;
@@ -964,6 +1028,8 @@ module.exports = {
   resolveTelegramConversation,
   ensureTelegramConversationProfile,
   readTelegramConversationProfile,
+  appendTelegramConversationNote,
+  deleteTelegramConversationNote,
   buildTelegramMemoryContext,
   formatTelegramMemoryPromptBlock,
 };

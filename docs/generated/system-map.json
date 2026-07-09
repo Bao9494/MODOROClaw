@@ -2,8 +2,8 @@
   "generatedBy": "electron/scripts/generate-system-map.js",
   "counts": {
     "apiRoutes": 89,
-    "ipcHandlers": 233,
-    "preloadBridges": 226,
+    "ipcHandlers": 235,
+    "preloadBridges": 228,
     "dashboardPages": 21,
     "capabilityContracts": 3
   },
@@ -840,6 +840,10 @@
       "source": "electron/lib/dashboard-ipc.js"
     },
     {
+      "channel": "append-telegram-conversation-note",
+      "source": "electron/lib/dashboard-ipc.js"
+    },
+    {
       "channel": "append-zalo-user-note",
       "source": "electron/lib/dashboard-ipc.js"
     },
@@ -977,6 +981,10 @@
     },
     {
       "channel": "delete-openclaw-cron",
+      "source": "electron/lib/dashboard-ipc.js"
+    },
+    {
+      "channel": "delete-telegram-conversation-note",
       "source": "electron/lib/dashboard-ipc.js"
     },
     {
@@ -1786,6 +1794,11 @@
       "source": "electron/preload.js"
     },
     {
+      "name": "appendTelegramConversationNote",
+      "channel": "append-telegram-conversation-note",
+      "source": "electron/preload.js"
+    },
+    {
       "name": "appendZaloUserNote",
       "channel": "append-zalo-user-note",
       "source": "electron/preload.js"
@@ -1943,6 +1956,11 @@
     {
       "name": "deleteOpenclawCron",
       "channel": "delete-openclaw-cron",
+      "source": "electron/preload.js"
+    },
+    {
+      "name": "deleteTelegramConversationNote",
+      "channel": "delete-telegram-conversation-note",
       "source": "electron/preload.js"
     },
     {
@@ -2982,11 +3000,11 @@
   "largeSourceFiles": [
     {
       "path": "electron/ui/dashboard.html",
-      "bytes": 793331
+      "bytes": 797164
     },
     {
       "path": "electron/lib/dashboard-ipc.js",
-      "bytes": 319381
+      "bytes": 320575
     },
     {
       "path": "electron/lib/license.js",
@@ -3073,16 +3091,16 @@
       "bytes": 37246
     },
     {
+      "path": "electron/lib/telegram-memory.js",
+      "bytes": 36675
+    },
+    {
       "path": "electron/lib/ceo-memory.js",
       "bytes": 36541
     },
     {
       "path": "electron/lib/aivideoauto-v2.js",
       "bytes": 36210
-    },
-    {
-      "path": "electron/lib/telegram-memory.js",
-      "bytes": 33634
     },
     {
       "path": "electron/lib/fb-native-schedule-batch.js",

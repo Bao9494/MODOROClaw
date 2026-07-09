@@ -125,6 +125,8 @@ const {
   seedTelegramConversationsFromRuntime,
   ensureTelegramConversationProfile,
   sanitizeTelegramChatId,
+  appendTelegramConversationNote,
+  deleteTelegramConversationNote,
 } = require('./telegram-memory');
 const {
   getAppointmentsPath, readAppointments, writeAppointments,
@@ -3225,6 +3227,38 @@ ipcMain.handle('read-telegram-conversation-memory', async (_event, payload) => {
   } catch (e) {
     console.error('[telegram-manager] read memory error:', e?.message || e);
     return { exists: false, content: '', error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('append-telegram-conversation-note', async (_event, payload) => {
+  try {
+    const request = payload && typeof payload === 'object' ? payload : {};
+    const id = sanitizeTelegramChatId(request.chatId);
+    if (!id) return { success: false, error: 'invalid chatId' };
+    return appendTelegramConversationNote({
+      ...request,
+      chatId: id,
+      telegramChatId: id,
+    });
+  } catch (e) {
+    console.error('[telegram-manager] append note error:', e?.message || e);
+    return { success: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('delete-telegram-conversation-note', async (_event, payload) => {
+  try {
+    const request = payload && typeof payload === 'object' ? payload : {};
+    const id = sanitizeTelegramChatId(request.chatId);
+    if (!id) return { success: false, error: 'invalid chatId' };
+    return deleteTelegramConversationNote({
+      ...request,
+      chatId: id,
+      telegramChatId: id,
+    });
+  } catch (e) {
+    console.error('[telegram-manager] delete note error:', e?.message || e);
+    return { success: false, error: e?.message || String(e) };
   }
 });
 

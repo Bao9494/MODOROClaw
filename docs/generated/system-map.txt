@@ -2,8 +2,8 @@
 
 Counts
 - apiRoutes: 89
-- ipcHandlers: 233
-- preloadBridges: 226
+- ipcHandlers: 235
+- preloadBridges: 228
 - dashboardPages: 21
 - capabilityContracts: 3
 
@@ -127,8 +127,8 @@ Dashboard Pages
 - zalo-behavior
 
 Large Source Files
-- electron/ui/dashboard.html: 793331 bytes
-- electron/lib/dashboard-ipc.js: 319381 bytes
+- electron/ui/dashboard.html: 797164 bytes
+- electron/lib/dashboard-ipc.js: 320575 bytes
 - electron/lib/license.js: 187389 bytes
 - electron/lib/cron-api.js: 184128 bytes
 - electron/lib/cron.js: 133310 bytes
