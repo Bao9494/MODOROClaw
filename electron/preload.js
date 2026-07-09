@@ -163,6 +163,7 @@ contextBridge.exposeInMainWorld('claw', {
   readTelegramConversationMemory: (chatId) => ipcRenderer.invoke('read-telegram-conversation-memory', chatId),
   appendTelegramConversationNote: (chatId, note, meta) => ipcRenderer.invoke('append-telegram-conversation-note', { ...(meta || {}), chatId, note }),
   deleteTelegramConversationNote: (chatId, noteTimestamp) => ipcRenderer.invoke('delete-telegram-conversation-note', { chatId, noteTimestamp }),
+  saveTelegramConversationProfileSections: (chatId, sections, meta) => ipcRenderer.invoke('save-telegram-conversation-profile-sections', { ...(meta || {}), chatId, sections }),
   seedTelegramConversations: () => ipcRenderer.invoke('seed-telegram-conversations'),
 
   // Channel readiness probes — real proof channels can receive messages

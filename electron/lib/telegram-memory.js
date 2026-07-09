@@ -33,6 +33,11 @@ const DIRECTORY_FILE = 'telegram-directory.json';
 const PROFILE_DIR = path.join('memory', 'telegram-chats');
 const USER_PROFILE_DIR = path.join('memory', 'telegram-users');
 const GROUP_PROFILE_DIR = path.join('memory', 'telegram-groups');
+const TELEGRAM_PROFILE_SECTION_MAP = {
+  profile: 'Ho so doi tuong',
+  knowledge: 'Kien thuc rieng can nap',
+  interactionNotes: 'Luu y khi tuong tac',
+};
 
 function sanitizeTelegramChatId(value) {
   if (value == null) return '';
@@ -872,6 +877,83 @@ function readTelegramConversationProfile(chatId, maxChars = 2500) {
   }
 }
 
+function escapeTelegramProfileRegex(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function sanitizeTelegramProfileSection(value, maxChars = 6000) {
+  const text = String(value == null ? '' : value)
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+    .split('\n')
+    .map(line => line.replace(/[ \t]+$/g, ''))
+    .join('\n')
+    .trim()
+    .slice(0, Math.max(1, Number(maxChars) || 6000));
+  return text || '(chua co)';
+}
+
+function insertTelegramProfileSection(content, title, body) {
+  const block = `\n\n## ${title}\n${body}\n`;
+  const raw = String(content || '');
+  const footerMatch = raw.match(/\n---\s*\n\*Ho so duoc tao tu dong cho Telegram conversation/i);
+  if (footerMatch?.index != null) {
+    return raw.slice(0, footerMatch.index) + block + raw.slice(footerMatch.index);
+  }
+  const ceoMatch = raw.match(/\n## CEO notes\s*\n/i);
+  if (ceoMatch?.index != null) {
+    return raw.slice(0, ceoMatch.index) + block + raw.slice(ceoMatch.index);
+  }
+  return raw.replace(/\s*$/, block);
+}
+
+function replaceTelegramProfileSection(content, title, body) {
+  const raw = String(content || '');
+  const heading = new RegExp(`(^|\\n)## ${escapeTelegramProfileRegex(title)}\\s*\\n`, 'i');
+  const match = heading.exec(raw);
+  if (!match) return insertTelegramProfileSection(raw, title, body);
+  const headingStart = match.index + (match[1] ? match[1].length : 0);
+  const bodyStart = match.index + match[0].length;
+  const tail = raw.slice(bodyStart);
+  const boundaries = [
+    tail.search(/\n##\s+/),
+    tail.search(/\n---\s*\n/),
+  ].filter(index => index >= 0);
+  const bodyEndOffset = boundaries.length ? Math.min(...boundaries) : tail.length;
+  const replacement = `## ${title}\n${body}\n`;
+  return raw.slice(0, headingStart) + replacement + tail.slice(bodyEndOffset);
+}
+
+function saveTelegramConversationProfileSections(input = {}) {
+  try {
+    const chatId = sanitizeTelegramChatId(input.chatId || input.telegramChatId || input.targetChatId);
+    if (!chatId) return { success: false, error: 'invalid chatId' };
+    const sections = input.sections && typeof input.sections === 'object' ? input.sections : {};
+    const requestedKeys = Object.keys(TELEGRAM_PROFILE_SECTION_MAP)
+      .filter(key => Object.prototype.hasOwnProperty.call(sections, key));
+    if (!requestedKeys.length) return { success: false, error: 'empty sections' };
+    const conversation = ensureTelegramConversationProfile({
+      ...input,
+      telegramChatId: chatId,
+      chatId,
+    });
+    if (!conversation?.profilePath) return { success: false, error: 'profile not available' };
+    let content = '';
+    try { content = fs.readFileSync(conversation.profilePath, 'utf-8'); } catch {}
+    const saved = {};
+    for (const key of requestedKeys) {
+      const title = TELEGRAM_PROFILE_SECTION_MAP[key];
+      const body = sanitizeTelegramProfileSection(sections[key]);
+      content = replaceTelegramProfileSection(content, title, body);
+      saved[key] = body;
+    }
+    fs.writeFileSync(conversation.profilePath, content, 'utf-8');
+    return { success: true, path: conversation.profilePath, sections: saved };
+  } catch (e) {
+    return { success: false, error: e?.message || String(e) };
+  }
+}
+
 function sanitizeTelegramConversationNote(note, maxChars = 2000) {
   return String(note || '')
     .replace(/[\u0000-\u001F\u007F]/g, ' ')
@@ -1034,6 +1116,7 @@ module.exports = {
   resolveTelegramConversation,
   ensureTelegramConversationProfile,
   readTelegramConversationProfile,
+  saveTelegramConversationProfileSections,
   appendTelegramConversationNote,
   deleteTelegramConversationNote,
   buildTelegramMemoryContext,

@@ -257,6 +257,74 @@ async function run() {
         && !noteProfileAfterDelete?.content.includes('Khach nay thich trao doi ngan gon'),
         JSON.stringify({ deletedNote, content: noteProfileAfterDelete?.content }));
     }
+    assert('telegram profile section editor helper is exported',
+      typeof tg.saveTelegramConversationProfileSections === 'function',
+      'missing saveTelegramConversationProfileSections helper');
+    if (typeof tg.saveTelegramConversationProfileSections === 'function') {
+      tg.appendTelegramConversationNote({
+        chatId: '-1007777777777',
+        chatType: 'supergroup',
+        role: 'internal',
+        label: 'Tier Only Telegram Group',
+        note: 'CEO note must survive section edits.',
+        timestamp: '2026-07-09 09:00',
+      });
+      const savedSections = tg.saveTelegramConversationProfileSections({
+        chatId: '-1007777777777',
+        chatType: 'supergroup',
+        role: 'internal',
+        label: 'Tier Only Telegram Group',
+        sections: {
+          profile: 'Nhom noi bo LLK, dung cho dieu phoi lich hop va van hanh.',
+          knowledge: 'Uu tien dung SOP noi bo va ngu canh Telegram truoc Zalo.',
+          interactionNotes: 'Tra loi ngan gon, xac nhan dung group truoc khi gui lenh.',
+        },
+      });
+      const sectionProfile = tg.readTelegramConversationProfile('-1007777777777', 8000);
+      assert('telegram profile section editor updates whitelisted sections and preserves CEO notes',
+        savedSections?.success === true
+        && sectionProfile?.content.includes('## Ho so doi tuong\nNhom noi bo LLK')
+        && sectionProfile?.content.includes('## Kien thuc rieng can nap\nUu tien dung SOP noi bo')
+        && sectionProfile?.content.includes('## Luu y khi tuong tac\nTra loi ngan gon')
+        && sectionProfile?.content.includes('## CEO notes')
+        && sectionProfile?.content.includes('CEO note must survive section edits.'),
+        JSON.stringify({ savedSections, content: sectionProfile?.content }));
+      const missingPath = tg.getTelegramProfilePath('-1009999999999');
+      try { if (missingPath && fs.existsSync(missingPath)) fs.unlinkSync(missingPath); } catch {}
+      tg.ensureTelegramConversationProfile({
+        telegramChatId: '-1009999999999',
+        telegramChatType: 'supergroup',
+        role: 'internal',
+        label: 'Missing Section Group',
+      });
+      tg.appendTelegramConversationNote({
+        chatId: '-1009999999999',
+        chatType: 'supergroup',
+        role: 'internal',
+        label: 'Missing Section Group',
+        note: 'Existing note.',
+        timestamp: '2026-07-09 09:10',
+      });
+      const missingBefore = fs.readFileSync(missingPath, 'utf-8')
+        .replace(/\n## Kien thuc rieng can nap\n[\s\S]*?(?=\n## Luu y khi tuong tac\n)/, '\n');
+      fs.writeFileSync(missingPath, missingBefore, 'utf-8');
+      const missingSaved = tg.saveTelegramConversationProfileSections({
+        chatId: '-1009999999999',
+        chatType: 'supergroup',
+        role: 'internal',
+        label: 'Missing Section Group',
+        sections: {
+          knowledge: 'Inserted knowledge before footer.',
+        },
+      });
+      const missingAfter = tg.readTelegramConversationProfile('-1009999999999', 8000)?.content || '';
+      assert('telegram profile section editor inserts missing sections before footer and CEO notes',
+        missingSaved?.success === true
+        && missingAfter.indexOf('## Kien thuc rieng can nap') >= 0
+        && missingAfter.indexOf('## Kien thuc rieng can nap') < missingAfter.indexOf('\n---\n*Ho so duoc tao tu dong')
+        && missingAfter.indexOf('\n---\n*Ho so duoc tao tu dong') < missingAfter.indexOf('## CEO notes'),
+        JSON.stringify({ missingSaved, content: missingAfter }));
+    }
     assert('telegram entity id is stable', tg.telegramEntityId('-1003857797941') === 'telegram:-1003857797941');
     assert('telegram memory discovers OpenClaw session metadata',
       telegramMemorySrc.includes('collectOpenclawSessionCandidates')
@@ -292,14 +360,16 @@ async function run() {
       && dashboardSrc.includes("save-telegram-conversation-settings")
       && dashboardSrc.includes("seed-telegram-conversations")
       && dashboardSrc.includes("append-telegram-conversation-note")
-      && dashboardSrc.includes("delete-telegram-conversation-note"),
+      && dashboardSrc.includes("delete-telegram-conversation-note")
+      && dashboardSrc.includes("save-telegram-conversation-profile-sections"),
       'missing dashboard IPC handlers');
     assert('telegram manager preload bridge exists',
       preloadSrc.includes('listTelegramConversations')
       && preloadSrc.includes('saveTelegramConversationSettings')
       && preloadSrc.includes('readTelegramConversationMemory')
       && preloadSrc.includes('appendTelegramConversationNote')
-      && preloadSrc.includes('deleteTelegramConversationNote'),
+      && preloadSrc.includes('deleteTelegramConversationNote')
+      && preloadSrc.includes('saveTelegramConversationProfileSections'),
       'missing preload bridge');
     assert('telegram manager UI exists',
       uiSrc.includes('tg-groups-list')
@@ -318,7 +388,11 @@ async function run() {
       && uiSrc.includes('tg-profile-role')
       && uiSrc.includes('tg-profile-response-mode')
       && uiSrc.includes('tg-profile-enabled')
-      && uiSrc.includes('saveTelegramConversationProfileSettings'),
+      && uiSrc.includes('saveTelegramConversationProfileSettings')
+      && uiSrc.includes('tg-profile-section-profile')
+      && uiSrc.includes('tg-profile-section-knowledge')
+      && uiSrc.includes('tg-profile-section-notes')
+      && uiSrc.includes('saveTelegramConversationProfileSections'),
       'missing Telegram profile modal identity/policy controls');
 
     tg.writeTelegramDirectoryCache({

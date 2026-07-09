@@ -10348,6 +10348,26 @@
       }
     }
 
+    function escapeTelegramProfileSectionRegex(value) {
+      return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function extractTelegramProfileSection(content, title) {
+      const raw = String(content || '');
+      const heading = new RegExp('(^|\\n)## ' + escapeTelegramProfileSectionRegex(title) + '\\s*\\n', 'i');
+      const match = heading.exec(raw);
+      if (!match) return '';
+      const bodyStart = match.index + match[0].length;
+      const tail = raw.slice(bodyStart);
+      const boundaries = [
+        tail.search(/\n##\s+/),
+        tail.search(/\n---\s*\n/),
+      ].filter(index => index >= 0);
+      const bodyEnd = boundaries.length ? Math.min(...boundaries) : tail.length;
+      const body = tail.slice(0, bodyEnd).trim();
+      return /^\(chua co\)$/i.test(body) ? '' : body;
+    }
+
     async function viewTelegramConversationMemory(chatId, label) {
       try {
         const row = telegramConversations.find(c => c.chatId === chatId) || {};
@@ -10408,6 +10428,32 @@
           role,
           chatType,
         });
+        const profileSections = {
+          profile: extractTelegramProfileSection(result?.content || '', 'Ho so doi tuong'),
+          knowledge: extractTelegramProfileSection(result?.content || '', 'Kien thuc rieng can nap'),
+          interactionNotes: extractTelegramProfileSection(result?.content || '', 'Luu y khi tuong tac'),
+        };
+        const profileSectionPanel = `<div class="tg-profile-panel tg-profile-section-editor">
+          <div class="tg-profile-panel-title">Bộ nhớ riêng Telegram</div>
+          <div class="tg-profile-grid">
+            <div class="tg-profile-field tg-profile-wide">
+              <label for="tg-profile-section-profile">Hồ sơ đối tượng</label>
+              <textarea id="tg-profile-section-profile" class="tg-profile-textarea" rows="3" placeholder="Chân dung nhóm/người này">${esc(profileSections.profile)}</textarea>
+            </div>
+            <div class="tg-profile-field tg-profile-wide">
+              <label for="tg-profile-section-knowledge">Kiến thức riêng cần nạp</label>
+              <textarea id="tg-profile-section-knowledge" class="tg-profile-textarea" rows="3" placeholder="Tri thức riêng, quy trình, sản phẩm, bối cảnh">${esc(profileSections.knowledge)}</textarea>
+            </div>
+            <div class="tg-profile-field tg-profile-wide">
+              <label for="tg-profile-section-notes">Lưu ý khi tương tác</label>
+              <textarea id="tg-profile-section-notes" class="tg-profile-textarea" rows="3" placeholder="Giọng điệu, điều nên/không nên làm">${esc(profileSections.interactionNotes)}</textarea>
+            </div>
+          </div>
+          <div class="tg-profile-actions">
+            <span class="tg-profile-chip">Hồ sơ riêng</span>
+            <button id="tg-profile-sections-save-btn" class="btn btn-secondary btn-small" onclick="saveTelegramConversationProfileSections()">Lưu bộ nhớ riêng</button>
+          </div>
+        </div>`;
         const old = document.getElementById('telegram-memory-modal');
         if (old) old.remove();
         const modal = document.createElement('div');
@@ -10440,6 +10486,7 @@
           <button class="group-memory-close" onclick="document.getElementById('telegram-memory-modal').remove()">×</button>
           <h3>${esc(label || chatId)}</h3>
           ${profilePanel}
+          ${profileSectionPanel}
           ${modalBody}
           <div class="zum-footer" style="margin-top:14px">
             <textarea id="tgm-note-input" placeholder="Ghi chú riêng của anh/chị về chat/khách Telegram này (không gửi cho họ)..." rows="2"></textarea>
@@ -10449,6 +10496,41 @@
         document.body.appendChild(modal);
       } catch (e) {
         showToast('Lỗi mở hồ sơ Telegram: ' + (e.message || e), 'error');
+      }
+    }
+
+    async function saveTelegramConversationProfileSections() {
+      const modal = document.getElementById('telegram-memory-modal');
+      if (!modal) return;
+      const chatId = modal.dataset.chatId || '';
+      if (!chatId) return;
+      const sections = {
+        profile: String(document.getElementById('tg-profile-section-profile')?.value || ''),
+        knowledge: String(document.getElementById('tg-profile-section-knowledge')?.value || ''),
+        interactionNotes: String(document.getElementById('tg-profile-section-notes')?.value || ''),
+      };
+      const button = document.getElementById('tg-profile-sections-save-btn');
+      if (button) {
+        button.disabled = true;
+        button.textContent = 'Đang lưu...';
+      }
+      try {
+        const res = await window.claw.saveTelegramConversationProfileSections(chatId, sections, {
+          label: modal.dataset.label || '',
+          role: modal.dataset.role || '',
+          chatType: modal.dataset.chatType || '',
+        });
+        if (!res?.success) throw new Error(res?.error || 'Không lưu được bộ nhớ riêng Telegram');
+        await viewTelegramConversationMemory(chatId, modal.dataset.label || chatId);
+        showToast('Đã lưu bộ nhớ riêng Telegram', 'success');
+      } catch (e) {
+        showToast('Lỗi lưu bộ nhớ riêng Telegram: ' + (e.message || e), 'error');
+      } finally {
+        const nextButton = document.getElementById('tg-profile-sections-save-btn');
+        if (nextButton) {
+          nextButton.disabled = false;
+          nextButton.textContent = 'Lưu bộ nhớ riêng';
+        }
       }
     }
 

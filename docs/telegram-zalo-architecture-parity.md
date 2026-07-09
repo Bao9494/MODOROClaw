@@ -67,6 +67,7 @@ Kết luận: hiệu quả chính đến từ việc filter trước khi scoring
 | UI quản lý conversation | Tab Telegram có bảng 2 cột Group/Channel và Private/CEO/DM, bộ lọc riêng từng cột, nút xem hồ sơ, role select, responseMode select và bật/tắt/bulk action theo conversation | Đã thêm foundation |
 | Hồ sơ định danh/alias trên UI | Modal hồ sơ Telegram cho sửa tên định danh, alias tìm kiếm, role, responseMode và bật/tắt ngay tại nơi xem memory | Đã thêm foundation |
 | Ghi chú riêng/chân dung đối tượng | Dashboard Telegram có thể append/delete `## CEO notes` trong hồ sơ conversation; ghi chú này không gửi cho người dùng nhưng được nạp lại qua profile context | Đã thêm foundation |
+| Editor hồ sơ/kiến thức/lưu ý | Modal hồ sơ Telegram cho sửa `## Ho so doi tuong`, `## Kien thuc rieng can nap`, và `## Luu y khi tuong tac` qua `saveTelegramConversationProfileSections`; BOT nạp lại qua profile context hiện có | Đã thêm |
 | Seed danh sách conversation | `telegram-memory.js` đọc `openclaw.json`, `custom-crons.json`, log/cache Telegram và profile đã có để seed `memory/telegram-chats/<chatId>.md` | Đã thêm nền tảng |
 | Directory/cache Telegram | `electron/lib/telegram-directory.js`, `telegram-directory.json`, `/api/telegram/directory`, `/api/telegram/directory/refresh` | Đã thêm nền tảng |
 | Approval payload guard | `channels.js` lọc raw `/approve`; `vendor-patches.js` coalesce `buildExecApprovalPendingReplyPayload()` để không bắn `Run/Pending command` ra chat | Đã thêm guard |

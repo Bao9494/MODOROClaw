@@ -125,6 +125,7 @@ const {
   seedTelegramConversationsFromRuntime,
   ensureTelegramConversationProfile,
   sanitizeTelegramChatId,
+  saveTelegramConversationProfileSections,
   appendTelegramConversationNote,
   deleteTelegramConversationNote,
 } = require('./telegram-memory');
@@ -3258,6 +3259,22 @@ ipcMain.handle('delete-telegram-conversation-note', async (_event, payload) => {
     });
   } catch (e) {
     console.error('[telegram-manager] delete note error:', e?.message || e);
+    return { success: false, error: e?.message || String(e) };
+  }
+});
+
+ipcMain.handle('save-telegram-conversation-profile-sections', async (_event, payload) => {
+  try {
+    const request = payload && typeof payload === 'object' ? payload : {};
+    const id = sanitizeTelegramChatId(request.chatId);
+    if (!id) return { success: false, error: 'invalid chatId' };
+    return saveTelegramConversationProfileSections({
+      ...request,
+      chatId: id,
+      telegramChatId: id,
+    });
+  } catch (e) {
+    console.error('[telegram-manager] save profile sections error:', e?.message || e);
     return { success: false, error: e?.message || String(e) };
   }
 });
