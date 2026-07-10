@@ -1736,6 +1736,8 @@ try {
     vendorPatchSrc.includes('STATIC_CONFIG_MODEL_RESOLVE_CACHE') &&
     vendorPatchSrc.includes('hasExplicitConfigApiKeyProvider') &&
     vendorPatchSrc.includes('skipProviderRuntimeHooks: true') &&
+    vendorPatchSrc.includes('20260710-fast-telegram-context-lookup-v1') &&
+    vendorPatchSrc.includes('ensureTelegramFastContextLookupPatch(vendorDir, homeDir)') &&
     vendorPatchSrc.includes('MODOROCLAW_DISABLE_LATENCY_PATCHES');
   if (!hasLatencyPatches) {
     fail('openclaw latency patches', 'vendor-patches.js must keep explicit-provider, fast-chat-tools, static-model, and API-key session override patches');

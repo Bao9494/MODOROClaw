@@ -66,6 +66,13 @@ async function run() {
       && vendorPatchSrc.includes('should9BizClawTelegramPreTyping')
       && vendorPatchSrc.includes('ensureTelegramNoMentionPretypingPatch(vendorDir, homeDir)'),
       'missing Telegram no-mention pretyping guard');
+    assert('telegram vendor patch answers layered context lookups without slow provider path',
+      vendorPatchSrc.includes('20260710-fast-telegram-context-lookup-v1')
+      && vendorPatchSrc.includes('ensureTelegramFastContextLookupPatch')
+      && vendorPatchSrc.includes('try9BizClawTelegramContextLookupFastPath')
+      && vendorPatchSrc.includes('fast-telegram-context-lookup')
+      && vendorPatchSrc.includes('ensureTelegramFastContextLookupPatch(vendorDir, homeDir)'),
+      'missing Telegram fast context lookup vendor patch guard');
 
     const group = tg.resolveTelegramConversation({
       telegramChatId: '-1003857797941',

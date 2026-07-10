@@ -1115,6 +1115,7 @@ function ensureTelegramFastRoleLookupPatch(vendorDir, homeDir) {
     '\tconst raw = String(text || "").trim();\n' +
     '\tif (!raw) return "";\n' +
     '\tconst normalized = normalize9BizClawTelegramRoleLookupText(raw);\n' +
+    '\tif (/\\b(quyen|owner|admin|member|memberstatus|metadata|api telegram member|ho so|profile|history|lich su|kien thuc|luu y|tuong tac|nguon|ket hop|response mode|bat moi tin|doi role|thao tac)\\b/.test(normalized)) return "";\n' +
     '\tif (!/(noi bo|khach hang|khach|role|vai tro|phan loai|thuoc|dang la)/.test(normalized)) return "";\n' +
     '\tlet match = raw.match(/(?:nh\\u00f3m|nhom|group|k\\u00eanh|kenh|chat)\\s+(.+?)(?:\\s+(?:\\u0111ang|dang|l\\u00e0|la|thu\\u1ed9c|thuoc|role|vai|ph\\u00e2n|phan|n\\u1ed9i|noi|kh\\u00e1ch|khach)\\b|[?.!,]|$)/i);\n' +
     '\tlet q = match && match[1] ? match[1].trim() : "";\n' +
@@ -1214,6 +1215,173 @@ function ensureTelegramFastRoleLookupPatch(vendorDir, homeDir) {
     return;
   }
   console.warn('[openclaw-latency] telegram-fast-role-lookup: no telegram bot dist file found');
+}
+
+function ensureTelegramFastContextLookupPatch(vendorDir, homeDir) {
+  const distDir = _getOpenclawDistDir(vendorDir);
+  if (!distDir) return;
+  const files = fs.readdirSync(distDir).filter(f => f.startsWith('bot-') && f.endsWith('.js'));
+  const MARKER = '20260710-fast-telegram-context-lookup-v1';
+  const helperAnchor = 'const dispatchTelegramMessage = async ({ context, bot, cfg, runtime, replyToMode, streamMode, textLimit, telegramCfg, telegramDeps = defaultTelegramBotDeps, opts }) => {';
+  const dispatchAnchor = '\tlogTelegramDiag("dispatch-start", `streamMode=${streamMode ?? "n/a"} replyToMode=${replyToMode ?? "n/a"}`);\n';
+  const helperLines = [
+    'const MODOROCLAW_FAST_TELEGRAM_CONTEXT_LOOKUP_MARKER = "' + MARKER + '";',
+    'function normalize9BizClawTelegramContextText(value) {',
+    '\treturn String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, " ").trim();',
+    '}',
+    'function clean9BizClawTelegramContextText(value, max = 420) {',
+    '\tconst text = String(value || "").replace(/\\r/g, "").replace(/[ \\t]+/g, " ").replace(/\\n{3,}/g, "\\n\\n").trim();',
+    '\treturn text.length > max ? text.slice(0, max - 1).trim() + "\\u2026" : text;',
+    '}',
+    'function display9BizClawTelegramContextRole(role) {',
+    '\tconst normalized = String(role || "unknown").trim().toLowerCase();',
+    '\tif (normalized === "ceo") return "CEO";',
+    '\tif (normalized === "internal") return "n\\u1ed9i b\\u1ed9";',
+    '\tif (normalized === "customer") return "kh\\u00e1ch h\\u00e0ng";',
+    '\treturn "ch\\u01b0a ph\\u00e2n lo\\u1ea1i";',
+    '}',
+    'function extract9BizClawTelegramProfileSection(raw, headings) {',
+    '\tconst wanted = headings.map((heading) => normalize9BizClawTelegramContextText(heading));',
+    '\tconst lines = String(raw || "").split(/\\r?\\n/);',
+    '\tlet start = -1;',
+    '\tfor (let i = 0; i < lines.length; i += 1) {',
+    '\t\tif (!/^##\\s+/.test(lines[i])) continue;',
+    '\t\tconst heading = normalize9BizClawTelegramContextText(lines[i].replace(/^##\\s+/, ""));',
+    '\t\tif (wanted.some((item) => heading.includes(item))) { start = i + 1; break; }',
+    '\t}',
+    '\tif (start < 0) return "";',
+    '\tconst out = [];',
+    '\tfor (let i = start; i < lines.length; i += 1) {',
+    '\t\tif (/^##\\s+/.test(lines[i]) || /^---\\s*$/.test(lines[i])) break;',
+    '\t\tout.push(lines[i]);',
+    '\t}',
+    '\treturn clean9BizClawTelegramContextText(out.join("\\n"));',
+    '}',
+    'function parse9BizClawTelegramProfile(raw) {',
+    '\tconst profile = extract9BizClawTelegramProfileSection(raw, ["Ho so doi tuong", "H\\u1ed3 s\\u01a1 \\u0111\\u1ed1i t\\u01b0\\u1ee3ng", "Profile"]);',
+    '\tconst knowledge = extract9BizClawTelegramProfileSection(raw, ["Kien thuc rieng can nap", "Ki\\u1ebfn th\\u1ee9c ri\\u00eang c\\u1ea7n n\\u1ea1p", "Private knowledge to load"]);',
+    '\tconst interaction = extract9BizClawTelegramProfileSection(raw, ["Luu y khi tuong tac", "L\\u01b0u \\u00fd khi t\\u01b0\\u01a1ng t\\u00e1c", "Interaction notes"]);',
+    '\tconst ceoNotes = extract9BizClawTelegramProfileSection(raw, ["CEO notes"]);',
+    '\tconst ceoNoteCount = ceoNotes ? ceoNotes.split(/\\n+/).filter((line) => /^[-*]\\s+/.test(line.trim())).length || 1 : 0;',
+    '\treturn { profile, knowledge, interaction, ceoNoteCount };',
+    '}',
+    'function safeRead9BizClawJson(fs, filePath, fallback) {',
+    '\ttry { if (!fs.existsSync(filePath)) return fallback; return JSON.parse(fs.readFileSync(filePath, "utf8")); } catch { return fallback; }',
+    '}',
+    'function read9BizClawTelegramHistory(fs, path, baseDir, chatId) {',
+    '\tconst filePath = path.join(baseDir, "telegram-history", chatId + ".jsonl");',
+    '\tif (!fs.existsSync(filePath)) return null;',
+    '\ttry {',
+    '\t\tconst lines = fs.readFileSync(filePath, "utf8").split(/\\r?\\n/).filter(Boolean);',
+    '\t\tconst parsed = [];',
+    '\t\tfor (const line of lines.slice(-20)) { try { parsed.push(JSON.parse(line)); } catch {} }',
+    '\t\tconst last = parsed[parsed.length - 1] || null;',
+    '\t\tconst participants = Array.from(new Set(parsed.map((row) => row.senderName || row.senderUsername || row.senderId).filter(Boolean))).slice(0, 5);',
+    '\t\treturn { count: lines.length, lastIso: last?.iso || "", lastText: clean9BizClawTelegramContextText(last?.text || "", 180), participants };',
+    '\t} catch { return null; }',
+    '}',
+    'async function try9BizClawTelegramContextLookupFastPath(text, senderId) {',
+    '\tconst raw = String(text || "").trim();',
+    '\tif (!raw) return null;',
+    '\tconst normalized = normalize9BizClawTelegramContextText(raw);',
+    '\tconst wantsContext = /\\b(ket hop|nguon|directory|profile|ho so|history|lich su|member metadata|metadata|quyen|owner|admin|member|kien thuc|luu y|tuong tac|response mode|bat moi tin|doi role|phan loai|file noi bo|cron|tool)\\b/.test(normalized);',
+    '\tif (!wantsContext) return null;',
+    '\tif (!/(telegram|nhom|group|kenh|chat|llk|id|khach|cron|file noi bo)/.test(normalized)) return null;',
+    '\ttry {',
+    '\t\tconst fs = await import("node:fs");',
+    '\t\tconst path = await import("node:path");',
+    '\t\tconst baseDir = process.env.APPDATA ? path.join(process.env.APPDATA, "9bizclaw") : "";',
+    '\t\tif (!baseDir) return null;',
+    '\t\tconst rowsById = new Map();',
+    '\t\tconst addRow = (row, source) => {',
+    '\t\t\tconst chatId = String(row?.chatId || row?.targetChatId || (String(row?.entityId || "").startsWith("telegram:") ? String(row.entityId).slice(9) : "") || "").trim();',
+    '\t\t\tif (!chatId) return;',
+    '\t\t\tconst prev = rowsById.get(chatId) || {};',
+    '\t\t\tconst sources = new Set([...(prev.__sources || []), source]);',
+    '\t\t\trowsById.set(chatId, { ...prev, ...row, chatId, __sources: Array.from(sources) });',
+    '\t\t};',
+    '\t\tconst settings = safeRead9BizClawJson(fs, path.join(baseDir, "telegram-conversation-settings.json"), {});',
+    '\t\tfor (const item of Object.values(settings || {})) addRow(item, "settings");',
+    '\t\tconst directory = safeRead9BizClawJson(fs, path.join(baseDir, "telegram-directory.json"), {});',
+    '\t\tfor (const item of directory?.entries || []) addRow(item, "directory");',
+    '\t\tfor (const relDir of ["memory/telegram-groups", "memory/telegram-users", "memory/telegram-chats"]) {',
+    '\t\t\tconst memoryDir = path.join(baseDir, relDir);',
+    '\t\t\tif (!fs.existsSync(memoryDir)) continue;',
+    '\t\t\tfor (const file of fs.readdirSync(memoryDir).filter((name) => name.endsWith(".md"))) {',
+    '\t\t\t\ttry {',
+    '\t\t\t\t\tconst chatId = file.replace(/\\.md$/i, "");',
+    '\t\t\t\t\tconst profilePath = path.join(memoryDir, file);',
+    '\t\t\t\t\tconst body = fs.readFileSync(profilePath, "utf8").slice(0, 2500);',
+    '\t\t\t\t\tconst label = body.match(/^label:\\s*"?([^"\\r\\n]+)"?/m)?.[1] || body.match(/^#\\s+(.+)$/m)?.[1] || chatId;',
+    '\t\t\t\t\tconst role = body.match(/^role:\\s*"?([^"\\r\\n]+)"?/m)?.[1] || "";',
+    '\t\t\t\t\tconst audience = body.match(/^audience:\\s*"?([^"\\r\\n]+)"?/m)?.[1] || "";',
+    '\t\t\t\t\tconst chatType = body.match(/^chatType:\\s*"?([^"\\r\\n]+)"?/m)?.[1] || "";',
+    '\t\t\t\t\taddRow({ chatId, label, role, audience, chatType, profilePath }, "profile");',
+    '\t\t\t\t} catch {}',
+    '\t\t\t}',
+    '\t\t}',
+    '\t\tconst wantsGroupTarget = /\\b(nhom|group|kenh)\\b/.test(normalized);',
+    '\t\tconst scored = Array.from(rowsById.values()).filter((row) => row.enabled !== false).map((row) => {',
+    '\t\t\tconst label = String(row.label || row.title || row.name || row.chatId || "");',
+    '\t\t\tconst aliases = Array.isArray(row.aliases) ? row.aliases.join(" ") : "";',
+    '\t\t\tconst hay = normalize9BizClawTelegramContextText([label, aliases, row.chatId, row.entityId, row.username].join(" "));',
+    '\t\t\tconst targetKind = normalize9BizClawTelegramContextText([row.chatType, row.directoryKind].join(" "));',
+    '\t\t\tlet score = 0;',
+    '\t\t\tif (normalized.includes(normalize9BizClawTelegramContextText(label))) score += 120;',
+    '\t\t\tif (normalized.includes(String(row.chatId).replace(/^-100/, "")) || normalized.includes(String(row.chatId))) score += 80;',
+    '\t\t\tif (wantsGroupTarget && /(group|supergroup|channel)/.test(targetKind)) score += 90;',
+    '\t\t\tif (wantsGroupTarget && /(private|user|ceo)/.test(targetKind)) score -= 120;',
+    '\t\t\tfor (const token of hay.split(/\\s+/).filter((part) => part.length >= 2)) if (normalized.includes(token)) score += Math.min(18, token.length + 6);',
+    '\t\t\treturn { row, score };',
+    '\t\t}).filter((item) => item.score > 0).sort((a, b) => b.score - a.score);',
+    '\t\tconst picked = scored[0]?.row;',
+    '\t\tif (!picked) return null;',
+    '\t\tlet profileRaw = "";',
+    '\t\tconst profilePath = picked.profilePath && fs.existsSync(picked.profilePath) ? picked.profilePath : path.join(baseDir, "memory", "telegram-chats", picked.chatId + ".md");',
+    '\t\tif (fs.existsSync(profilePath)) { try { profileRaw = fs.readFileSync(profilePath, "utf8"); } catch {} }',
+    '\t\tconst profile = parse9BizClawTelegramProfile(profileRaw);',
+    '\t\tconst members = safeRead9BizClawJson(fs, path.join(baseDir, "telegram-member-metadata.json"), { entries: {} })?.entries || {};',
+    '\t\tconst memberKey = senderId ? picked.chatId + ":" + senderId : "";',
+    '\t\tconst member = memberKey ? members[memberKey] : Object.values(members).find((item) => String(item?.chatId) === String(picked.chatId));',
+    '\t\tconst history = read9BizClawTelegramHistory(fs, path, baseDir, picked.chatId);',
+    '\t\tconst actionSafety = /\\b(doi|chuyen|bat moi tin|response mode|tu nhan|toi la ceo|thao tac|file noi bo|cron|tool)\\b/.test(normalized);',
+    '\t\tconst roleLabel = display9BizClawTelegramContextRole(picked.role || picked.audience);',
+    '\t\tconst lines = ["Em ki\\u1ec3m tra theo ki\\u1ebfn tr\\u00fac nhi\\u1ec1u l\\u1edbp c\\u1ee7a Telegram:", "", "1. Ph\\u00e2n lo\\u1ea1i chat", "- T\\u00ean: " + (picked.label || picked.chatId), "- Telegram chat ID: " + picked.chatId, "- Lo\\u1ea1i: " + (picked.chatType || picked.directoryKind || "ch\\u01b0a r\\u00f5"), "- Role/audience: " + (picked.role || "unknown") + " / " + (picked.audience || "unknown") + " (" + roleLabel + ")", "- Response mode: " + (picked.responseMode || "ch\\u01b0a r\\u00f5") + ", enabled=" + (picked.enabled !== false), "", "2. Quy\\u1ec1n Telegram th\\u1eadt c\\u1ee7a ng\\u01b0\\u1eddi \\u0111ang h\\u1ecfi", member ? "- memberStatus=" + (member.memberStatus || "unknown") + ", isOwner=" + !!member.isOwner + ", isAdmin=" + !!member.isAdmin + ", isMember=" + !!member.isMember : "- Ch\\u01b0a c\\u00f3 member metadata cho user n\\u00e0y trong nh\\u00f3m.", member ? "- Ngu\\u1ed3n quy\\u1ec1n: " + (member.source || "unknown") + ", fetchedAt=" + (member.fetchedAt || member.updatedAt || "unknown") : "- C\\u1ea7n g\\u1ecdi /api/telegram/member ho\\u1eb7c getChatMember tr\\u01b0\\u1edbc khi kh\\u1eb3ng \\u0111\\u1ecbnh owner/admin/member.", "", "3. H\\u1ed3 s\\u01a1 ri\\u00eang c\\u1ea7n n\\u1ea1p", "- H\\u1ed3 s\\u01a1 \\u0111\\u1ed1i t\\u01b0\\u1ee3ng: " + (profile.profile || "(ch\\u01b0a c\\u00f3)"), "- Ki\\u1ebfn th\\u1ee9c ri\\u00eang: " + (profile.knowledge || "(ch\\u01b0a c\\u00f3)"), "- L\\u01b0u \\u00fd t\\u01b0\\u01a1ng t\\u00e1c: " + (profile.interaction || "(ch\\u01b0a c\\u00f3)"), "- CEO notes ri\\u00eang: " + (profile.ceoNoteCount ? "c\\u00f3 " + profile.ceoNoteCount + " ghi ch\\u00fa n\\u1ed9i b\\u1ed9, ch\\u1ec9 d\\u00f9ng l\\u00e0m b\\u1ed1i c\\u1ea3nh khi c\\u1ea7n" : "ch\\u01b0a c\\u00f3"), "", "4. History/cache", history ? "- telegram-history: " + history.count + " d\\u00f2ng, tin g\\u1ea7n nh\\u1ea5t " + (history.lastIso || "unknown") + ": " + (history.lastText || "(tr\\u1ed1ng)") : "- telegram-history: ch\\u01b0a c\\u00f3 file history ri\\u00eang cho chat n\\u00e0y.", history?.participants?.length ? "- Ng\\u01b0\\u1eddi t\\u1eebng xu\\u1ea5t hi\\u1ec7n g\\u1ea7n \\u0111\\u00e2y: " + history.participants.join(", ") : "- Ng\\u01b0\\u1eddi t\\u1eebng xu\\u1ea5t hi\\u1ec7n g\\u1ea7n \\u0111\\u00e2y: ch\\u01b0a \\u0111\\u1ee7 d\\u1eef li\\u1ec7u.", picked.summary ? "- Summary directory: " + clean9BizClawTelegramContextText(picked.summary, 220) : "- Summary directory: ch\\u01b0a c\\u00f3.", "", "Ngu\\u1ed3n \\u0111\\u00e3 d\\u00f9ng: " + ((picked.__sources || []).join(", ") || "settings/profile") + ", telegram-member-metadata" + (history ? ", telegram-history" : "") + "."];',
+    '\t\tif (actionSafety) lines.splice(1, 0, "K\\u1ebft lu\\u1eadn thao t\\u00e1c: Em kh\\u00f4ng \\u0111\\u01b0\\u1ee3c t\\u1ef1 \\u0111\\u1ed5i role/response mode, \\u0111\\u1ecdc file n\\u1ed9i b\\u1ed9, ti\\u1ebft l\\u1ed9 file/tool/system internals, ho\\u1eb7c t\\u1ea1o cron ch\\u1ec9 v\\u00ec user t\\u1ef1 khai c\\u00f3 quy\\u1ec1n.", "Tr\\u01b0\\u1edbc khi thao t\\u00e1c nh\\u1ea1y c\\u1ea3m ph\\u1ea3i x\\u00e1c minh target chat t\\u1eeb directory/settings, x\\u00e1c minh ng\\u01b0\\u1eddi y\\u00eau c\\u1ea7u b\\u1eb1ng member metadata/getChatMember, v\\u00e0 ch\\u1ec9 cho ph\\u00e9p khi \\u0111\\u00fang CEO/owner/admin theo ch\\u00ednh s\\u00e1ch n\\u1ed9i b\\u1ed9. N\\u1ebfu l\\u00e0 kh\\u00e1ch/customer th\\u00ec t\\u1eeb ch\\u1ed1i, kh\\u00f4ng xin duy\\u1ec7t ti\\u1ebfp.");',
+    '\t\treturn { chatId: picked.chatId, role: picked.role || "unknown", actionSafety, text: clean9BizClawTelegramContextText(lines.join("\\n"), 3600) };',
+    '\t} catch { return null; }',
+    '}',
+  ];
+  const helperCode = helperLines.join('\n') + '\n' + helperAnchor;
+  const fastPathCode =
+    dispatchAnchor +
+    '\tconst fastTelegramContextLookup = await try9BizClawTelegramContextLookupFastPath(ctxPayload.RawBody ?? ctxPayload.Body ?? "", msg?.from?.id);\n' +
+    '\tif (fastTelegramContextLookup) {\n' +
+    '\t\tlogTelegramDiag("fast-telegram-context-lookup", "chatId=" + fastTelegramContextLookup.chatId + " role=" + fastTelegramContextLookup.role + " actionSafety=" + fastTelegramContextLookup.actionSafety + " marker=" + MODOROCLAW_FAST_TELEGRAM_CONTEXT_LOOKUP_MARKER);\n' +
+    '\t\tawait bot.api.sendMessage(chatId, fastTelegramContextLookup.text, buildTelegramThreadParams(threadSpec) ?? {});\n' +
+    '\t\tlogTelegramDiag("dispatch-end", "fastPath=telegram-context-lookup delivered=true");\n' +
+    '\t\treturn;\n' +
+    '\t}\n';
+
+  for (const file of files) {
+    const fp = path.join(distDir, file);
+    let src = fs.readFileSync(fp, 'utf-8');
+    if (!src.includes(helperAnchor)) continue;
+    if (src.includes(MARKER) || src.includes('try9BizClawTelegramContextLookupFastPath')) {
+      console.log('[openclaw-latency] telegram-fast-context-lookup: already patched');
+      return;
+    }
+    if (!src.includes(dispatchAnchor)) {
+      console.warn('[openclaw-latency] telegram-fast-context-lookup: dispatch anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureTelegramFastContextLookupPatch', `dispatch anchor missing in ${file}`);
+      return;
+    }
+    src = src.replace(helperAnchor, helperCode).replace(dispatchAnchor, fastPathCode);
+    fs.writeFileSync(fp, src, 'utf-8');
+    console.log('[openclaw-latency] telegram-fast-context-lookup: applied to ' + file);
+    return;
+  }
+  console.warn('[openclaw-latency] telegram-fast-context-lookup: no telegram bot dist file found');
 }
 
 function ensureTelegramProviderTimeoutGuardPatch(vendorDir, homeDir) {
@@ -1572,6 +1740,7 @@ function ensureOpenclawLatencyPatches(vendorDir, homeDir) {
   ensureEmbeddedPiStaticModelResolvePatch(vendorDir, homeDir);
   ensureTelegramFastIdLookupPatch(vendorDir, homeDir);
   ensureTelegramFastRoleLookupPatch(vendorDir, homeDir);
+  ensureTelegramFastContextLookupPatch(vendorDir, homeDir);
   ensureTelegramProviderTimeoutGuardPatch(vendorDir, homeDir);
   ensureTelegramInboundHistoryCapturePatch(vendorDir, homeDir);
   ensureTelegramNoMentionPretypingPatch(vendorDir, homeDir);
@@ -1908,6 +2077,7 @@ module.exports = {
   ensureSessionFreezePatches,
   ensureOpenclawLatencyPatches,
   ensureExecApprovalReplyCoalescePatch,
+  ensureTelegramFastContextLookupPatch,
   ensureTelegramProviderTimeoutGuardPatch,
   ensureTelegramInboundHistoryCapturePatch,
   ensureTelegramNoMentionPretypingPatch,
