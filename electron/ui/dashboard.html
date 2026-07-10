@@ -2959,22 +2959,27 @@
       <!-- PAGE: Telegram -->
       <div class="page" id="page-telegram">
         <style>
-          /* Telegram page — compact status/config band */
-          #page-telegram .tg-info-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px; }
-          #page-telegram .tg-info-grid-compact { align-items:stretch; }
-          #page-telegram .tg-info-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 14px; }
+          /* Telegram page — dense operator layout */
+          #page-telegram .page-header { margin-bottom:10px !important; padding-bottom:10px !important; gap:12px !important; }
+          #page-telegram .page-header .page-icon { width:40px !important; height:40px !important; border-radius:10px; }
+          #page-telegram .page-header h2 { font-size:24px !important; line-height:1.1; margin:0 0 2px !important; }
+          #page-telegram .page-header .page-sub { font-size:12px !important; line-height:1.3; }
+          #ready-pill-telegram { min-height:22px; padding:3px 12px; font-size:11px; }
+          #page-telegram .tg-info-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
+          #page-telegram .tg-info-grid-compact { align-items:start; }
+          #page-telegram .tg-info-card { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:9px 12px; }
           #page-telegram .tg-info-card-compact { min-height:0; }
-          #page-telegram .tg-info-card h4 { font-size:10px; font-weight:700; color:var(--text-tertiary); letter-spacing:0.35px; text-transform:uppercase; margin:0 0 8px; }
-          #page-telegram .tg-info-card-compact h4 { margin-bottom:6px; }
-          #page-telegram .tg-info-card-compact .tg-info-rows { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; }
-          #page-telegram .tg-info-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); font-size:12px; }
-          #page-telegram .tg-info-card-compact .tg-info-row { flex-direction:column; align-items:flex-start; justify-content:flex-start; gap:3px; min-width:0; padding:0; border-bottom:none; }
+          #page-telegram .tg-info-card h4 { font-size:9px; font-weight:750; color:var(--text-tertiary); letter-spacing:0.35px; text-transform:uppercase; margin:0 0 5px; }
+          #page-telegram .tg-info-card-compact h4 { margin-bottom:5px; }
+          #page-telegram .tg-info-card-compact .tg-info-rows { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:10px; }
+          #page-telegram .tg-info-row { display:flex; justify-content:space-between; align-items:center; padding:5px 0; border-bottom:1px solid var(--border); font-size:12px; }
+          #page-telegram .tg-info-card-compact .tg-info-row { flex-direction:column; align-items:flex-start; justify-content:flex-start; gap:2px; min-width:0; padding:0; border-bottom:none; }
           #page-telegram .tg-info-row:last-child { border-bottom:none; }
           #page-telegram .tg-info-label { color:var(--text-muted); font-weight:500; }
-          #page-telegram .tg-info-value { color:var(--text); font-weight:600; font-family:var(--font-mono, monospace); font-size:12px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+          #page-telegram .tg-info-value { color:var(--text); font-weight:600; font-family:var(--font-mono, monospace); font-size:11.5px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
           #page-telegram .tg-info-value.muted { color:var(--text-muted); font-family:inherit; font-weight:400; }
-          #page-telegram .tg-config-inline { display:grid; grid-template-columns:auto minmax(220px, 1fr) auto; gap:10px; align-items:end; }
-          #page-telegram .tg-config-help { color:var(--text-tertiary); font-size:11px; line-height:1.35; margin-top:6px; }
+          #page-telegram .tg-config-inline { display:grid; grid-template-columns:120px minmax(220px, 1fr) auto; gap:8px; align-items:center; }
+          #page-telegram .tg-config-help { display:none; }
           #page-telegram .tg-test-inline { display:flex; justify-content:flex-end; align-items:center; gap:8px; }
           @media (max-width: 900px) { #page-telegram .tg-config-inline { grid-template-columns:1fr; align-items:stretch; } #page-telegram .tg-test-inline { justify-content:flex-start; } }
           @media (max-width: 700px) { #page-telegram .tg-info-grid { grid-template-columns:1fr; } #page-telegram .tg-info-card-compact .tg-info-rows { grid-template-columns:1fr; } }
@@ -3006,27 +3011,35 @@
           #page-telegram .tg-save-btn:hover { opacity:0.85; }
           #page-telegram .tg-save-btn:disabled { opacity:0.4; cursor:not-allowed; }
           #page-telegram .tg-save-status { font-size:11px; color:var(--text-tertiary); }
-          #page-telegram .tg-manager { border:1px solid var(--border); border-radius:10px; background:var(--surface); margin-bottom:20px; overflow:hidden; }
-          #page-telegram .tg-manager-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:16px 18px 12px; border-bottom:1px solid var(--border); }
+          #page-telegram .tg-manager { border:1px solid var(--border); border-radius:10px; background:var(--surface); margin-bottom:0; overflow:hidden; }
+          #page-telegram .tg-manager-density { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
+          #page-telegram .tg-manager-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 16px 8px; border-bottom:1px solid var(--border); flex-shrink:0; }
           #page-telegram .tg-manager-title { font-size:15px; font-weight:700; margin:0; color:var(--text); display:flex; align-items:center; gap:6px; }
           #page-telegram .tg-manager-count { color:var(--accent); font-size:12px; font-weight:650; }
-          #page-telegram .tg-manager-sub { margin-top:4px; color:var(--text-muted); font-size:12px; line-height:1.4; }
+          #page-telegram .tg-manager-sub { display:none; }
           #page-telegram .tg-manager-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
-          #page-telegram .tg-manager-toolbar { padding:10px 18px 12px; border-bottom:1px solid var(--border); }
-          #page-telegram .tg-split { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:12px; min-height:420px; }
-          #page-telegram .tg-split-col { display:flex; flex-direction:column; min-width:0; min-height:0; border:1px solid var(--border); border-radius:10px; background:var(--bg); padding:10px; }
-          #page-telegram .tg-col-header { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; }
+          #page-telegram .tg-manager-toolbar { padding:8px 16px; border-bottom:1px solid var(--border); flex-shrink:0; }
+          #page-telegram .tg-split { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:10px; min-height:0; }
+          #page-telegram .tg-split-scroll { flex:1 1 auto; height:calc(100vh - 278px); max-height:calc(100vh - 278px); overflow:hidden; }
+          #page-telegram .tg-split-col { display:flex; flex-direction:column; min-width:0; min-height:0; border:1px solid var(--border); border-radius:8px; background:var(--bg); padding:8px; overflow:hidden; }
+          #page-telegram .tg-col-header { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px; flex-shrink:0; }
           #page-telegram .tg-col-title { font-size:14px; font-weight:750; color:var(--text); }
           #page-telegram .tg-col-count { font-size:12px; color:var(--accent); font-weight:650; }
-          #page-telegram .tg-conv-list { flex:1; min-height:0; max-height:520px; overflow:auto; padding:2px 2px 4px; }
-          #page-telegram .tg-conv { display:flex; align-items:center; gap:12px; padding:11px 12px; border:1px solid var(--border); border-left:3px solid transparent; border-radius:8px; background:var(--bg); margin-bottom:8px; transition:border-color .15s, background .15s, opacity .15s; }
+          #page-telegram .zalo-segments, #page-telegram .zalo-bulk-actions { flex-shrink:0; }
+          #page-telegram .tg-conv-list { flex:1; min-height:0; max-height:none; overflow-y:auto; overflow-x:hidden; padding:2px 4px 4px 2px; scrollbar-width:thin; }
+          #page-telegram .tg-conv-list-scroll { min-height:180px; }
+          #page-telegram .tg-conv-list::-webkit-scrollbar { width:5px; }
+          #page-telegram .tg-conv-list::-webkit-scrollbar-track { background:transparent; }
+          #page-telegram .tg-conv-list::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+          #page-telegram .tg-conv-list::-webkit-scrollbar-thumb:hover { background:var(--text-muted); }
+          #page-telegram .tg-conv { display:flex; align-items:center; gap:10px; padding:9px 10px; border:1px solid var(--border); border-left:3px solid transparent; border-radius:8px; background:var(--bg); margin-bottom:7px; transition:border-color .15s, background .15s, opacity .15s; }
           #page-telegram .tg-conv:hover { border-color:var(--border-strong); }
           #page-telegram .tg-conv-role-ceo { border-left-color:#6366f1; }
           #page-telegram .tg-conv-role-internal { border-left-color:#22c55e; }
           #page-telegram .tg-conv-role-customer { border-left-color:#eab308; }
           #page-telegram .tg-conv-role-unknown { border-left-color:#94a3b8; }
           #page-telegram .tg-conv-off { opacity:.58; }
-          #page-telegram .tg-conv-avatar { width:34px; height:34px; border-radius:50%; border:1px solid var(--border); background:var(--surface); display:inline-flex; align-items:center; justify-content:center; color:var(--text-muted); flex-shrink:0; }
+          #page-telegram .tg-conv-avatar { width:32px; height:32px; border-radius:50%; border:1px solid var(--border); background:var(--surface); display:inline-flex; align-items:center; justify-content:center; color:var(--text-muted); flex-shrink:0; }
           #page-telegram .tg-conv-body { flex:1 1 0; min-width:0; }
           #page-telegram .tg-conv-name { display:flex; align-items:center; gap:7px; min-width:0; line-height:1.2; }
           #page-telegram .tg-conv-name-text { font-size:14px; font-weight:650; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); }
@@ -3067,6 +3080,8 @@
             #page-telegram .tg-manager-head { flex-direction:column; }
             #page-telegram .tg-manager-actions { justify-content:flex-start; }
             #page-telegram .tg-split { grid-template-columns:1fr; }
+            #page-telegram .tg-split-scroll { height:auto; max-height:none; overflow:visible; }
+            #page-telegram .tg-conv-list-scroll { max-height:360px; }
             #page-telegram .tg-conv { align-items:flex-start; }
             #page-telegram .tg-conv-actions { flex-direction:column; align-items:flex-end; gap:6px; }
           }
@@ -3077,7 +3092,7 @@
           <div>
             <h2>Telegram</h2>
             <div class="page-sub">Kênh giao tiếp chính với CEO</div>
-            <div style="margin-top:8px"><span class="ready-pill" id="ready-pill-telegram" data-state="checking"><span class="pill-icon"></span><span id="ready-pill-telegram-text">Đang kiểm tra kết nối...</span></span></div>
+            <div style="margin-top:4px"><span class="ready-pill" id="ready-pill-telegram" data-state="checking"><span class="pill-icon"></span><span id="ready-pill-telegram-text">Đang kiểm tra kết nối...</span></span></div>
           </div>
           <div style="margin-left:auto;display:flex;gap:8px;align-items:flex-start">
             <button class="page-help-btn" onclick="guideReplay('telegram')" title="Xem hướng dẫn trang Telegram">?</button>
@@ -3131,7 +3146,7 @@
           </div>
         </div>
 
-        <div class="tg-manager">
+        <div class="tg-manager tg-manager-density">
           <div class="tg-manager-head">
             <div>
               <h3 class="tg-manager-title">Cuộc trò chuyện Telegram <span class="tg-manager-count" id="tg-conversation-total">0</span></h3>
@@ -3145,7 +3160,7 @@
           <div class="tg-manager-toolbar">
             <input type="text" class="zalo-mgr-search" id="tg-conversation-search" placeholder="Tìm chat, group, username, alias, ID..." oninput="renderTelegramConversations()" style="margin-bottom:0">
           </div>
-          <div class="tg-split">
+          <div class="tg-split tg-split-scroll">
             <div class="tg-split-col">
               <div class="tg-col-header">
                 <div><span class="tg-col-title">Nhóm / kênh</span> <span class="tg-col-count" id="tg-groups-count">0</span></div>
@@ -3161,7 +3176,7 @@
                 <button class="zalo-bulk-btn zalo-bulk-on" onclick="setTelegramPaneEnabled('groups', true)">Bật tất cả</button>
                 <button class="zalo-bulk-btn zalo-bulk-off" onclick="setTelegramPaneEnabled('groups', false)">Tắt tất cả</button>
               </div>
-              <div class="tg-conv-list" id="tg-groups-list">
+              <div class="tg-conv-list tg-conv-list-scroll" id="tg-groups-list">
                 <div class="tg-empty">Đang tải nhóm Telegram...</div>
               </div>
             </div>
@@ -3181,7 +3196,7 @@
                 <button class="zalo-bulk-btn zalo-bulk-on" onclick="setTelegramPaneEnabled('people', true)">Bật tất cả</button>
                 <button class="zalo-bulk-btn zalo-bulk-off" onclick="setTelegramPaneEnabled('people', false)">Tắt tất cả</button>
               </div>
-              <div class="tg-conv-list" id="tg-people-list">
+              <div class="tg-conv-list tg-conv-list-scroll" id="tg-people-list">
                 <div class="tg-empty">Đang tải cá nhân Telegram...</div>
               </div>
             </div>

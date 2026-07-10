@@ -549,6 +549,13 @@ async function run() {
       && uiSrc.includes('tg-config-inline')
       && uiSrc.includes('tg-test-inline'),
       'Telegram top status/config cards must stay compact so conversation manager remains first-screen visible');
+    assert('telegram conversation panes are dense and independently scrollable',
+      uiSrc.includes('tg-manager tg-manager-density')
+      && uiSrc.includes('tg-split tg-split-scroll')
+      && uiSrc.includes('tg-conv-list tg-conv-list-scroll')
+      && uiSrc.includes('height:calc(100vh - 278px)')
+      && uiSrc.includes('overflow-y:auto; overflow-x:hidden'),
+      'Telegram split panes must use viewport-bounded scroll areas like Zalo');
     assert('telegram profile modal exposes editable identity and policy controls',
       uiSrc.includes('tg-profile-label')
       && uiSrc.includes('tg-profile-aliases')
