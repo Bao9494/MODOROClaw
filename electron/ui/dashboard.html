@@ -2959,16 +2959,25 @@
       <!-- PAGE: Telegram -->
       <div class="page" id="page-telegram">
         <style>
-          /* Telegram page — clean info layout */
-          #page-telegram .tg-info-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px; }
-          #page-telegram .tg-info-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:20px; }
-          #page-telegram .tg-info-card h4 { font-size:11px; font-weight:600; color:var(--text-tertiary); letter-spacing:0.4px; text-transform:uppercase; margin:0 0 14px; }
-          #page-telegram .tg-info-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border); font-size:13px; }
+          /* Telegram page — compact status/config band */
+          #page-telegram .tg-info-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px; }
+          #page-telegram .tg-info-grid-compact { align-items:stretch; }
+          #page-telegram .tg-info-card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:12px 14px; }
+          #page-telegram .tg-info-card-compact { min-height:0; }
+          #page-telegram .tg-info-card h4 { font-size:10px; font-weight:700; color:var(--text-tertiary); letter-spacing:0.35px; text-transform:uppercase; margin:0 0 8px; }
+          #page-telegram .tg-info-card-compact h4 { margin-bottom:6px; }
+          #page-telegram .tg-info-card-compact .tg-info-rows { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; }
+          #page-telegram .tg-info-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); font-size:12px; }
+          #page-telegram .tg-info-card-compact .tg-info-row { flex-direction:column; align-items:flex-start; justify-content:flex-start; gap:3px; min-width:0; padding:0; border-bottom:none; }
           #page-telegram .tg-info-row:last-child { border-bottom:none; }
           #page-telegram .tg-info-label { color:var(--text-muted); font-weight:500; }
-          #page-telegram .tg-info-value { color:var(--text); font-weight:600; font-family:var(--font-mono, monospace); font-size:12px; }
+          #page-telegram .tg-info-value { color:var(--text); font-weight:600; font-family:var(--font-mono, monospace); font-size:12px; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
           #page-telegram .tg-info-value.muted { color:var(--text-muted); font-family:inherit; font-weight:400; }
-          @media (max-width: 700px) { #page-telegram .tg-info-grid { grid-template-columns:1fr; } }
+          #page-telegram .tg-config-inline { display:grid; grid-template-columns:auto minmax(220px, 1fr) auto; gap:10px; align-items:end; }
+          #page-telegram .tg-config-help { color:var(--text-tertiary); font-size:11px; line-height:1.35; margin-top:6px; }
+          #page-telegram .tg-test-inline { display:flex; justify-content:flex-end; align-items:center; gap:8px; }
+          @media (max-width: 900px) { #page-telegram .tg-config-inline { grid-template-columns:1fr; align-items:stretch; } #page-telegram .tg-test-inline { justify-content:flex-start; } }
+          @media (max-width: 700px) { #page-telegram .tg-info-grid { grid-template-columns:1fr; } #page-telegram .tg-info-card-compact .tg-info-rows { grid-template-columns:1fr; } }
           /* (tg-chip, tg-cmds, tg-cmd-*, tg-debounce removed — dead UI) */
           #page-telegram .tg-field { display:flex; flex-direction:column; gap:4px; }
           #page-telegram .tg-field-label { font-size:11px; font-weight:600; color:var(--text-tertiary); letter-spacing:0.3px; text-transform:uppercase; }
@@ -3082,26 +3091,28 @@
           <span>Bot Telegram đang tạm dừng. <span id="telegram-pause-until"></span></span>
         </div>
 
-        <div class="tg-info-grid">
-          <div class="tg-info-card">
+        <div class="tg-info-grid tg-info-grid-compact">
+          <div class="tg-info-card tg-info-card-compact">
             <h4>Thông tin kết nối</h4>
-            <div class="tg-info-row">
-              <span class="tg-info-label">Bot</span>
-              <span class="tg-info-value" id="tg-info-bot">--</span>
-            </div>
-            <div class="tg-info-row">
-              <span class="tg-info-label">User ID</span>
-              <span class="tg-info-value" id="tg-info-uid">--</span>
-            </div>
-            <div class="tg-info-row">
-              <span class="tg-info-label">Kiểm tra cuối</span>
-              <span class="tg-info-value muted" id="tg-info-checked">--</span>
+            <div class="tg-info-rows">
+              <div class="tg-info-row">
+                <span class="tg-info-label">Bot</span>
+                <span class="tg-info-value" id="tg-info-bot">--</span>
+              </div>
+              <div class="tg-info-row">
+                <span class="tg-info-label">User ID</span>
+                <span class="tg-info-value" id="tg-info-uid">--</span>
+              </div>
+              <div class="tg-info-row">
+                <span class="tg-info-label">Kiểm tra cuối</span>
+                <span class="tg-info-value muted" id="tg-info-checked">--</span>
+              </div>
             </div>
           </div>
 
-          <div class="tg-info-card">
+          <div class="tg-info-card tg-info-card-compact">
             <h4>Cấu hình</h4>
-            <div class="tg-info-row">
+            <div class="tg-config-inline">
               <span class="tg-info-label">Thời gian gộp tin</span>
               <select id="tg-debounce-select" onchange="onDebounceSelect('telegram', this.value)" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px;cursor:pointer">
                 <option value="0">Tắt (trả lời ngay)</option>
@@ -3111,12 +3122,12 @@
                 <option value="4000">4 giây</option>
                 <option value="5000">5 giây</option>
               </select>
+              <div class="tg-test-inline">
+                <span class="tg-info-label">Test</span>
+                <button class="btn btn-secondary btn-small" onclick="telegramSelfTest()" style="font-size:11px;padding:4px 12px">Gửi</button>
+              </div>
             </div>
-            <div style="font-size:11px;color:var(--text-tertiary);line-height:1.5;padding:4px 0">Khách gửi nhiều tin liên tiếp — trợ lý chờ gộp lại trả lời 1 lần.</div>
-            <div class="tg-info-row" style="border-bottom:none;padding-top:10px">
-              <span class="tg-info-label">Gửi tin test</span>
-              <button class="btn btn-secondary btn-small" onclick="telegramSelfTest()" style="font-size:11px;padding:4px 12px">Gửi</button>
-            </div>
+            <div class="tg-config-help">Khách gửi nhiều tin liên tiếp — trợ lý chờ gộp lại trả lời 1 lần.</div>
           </div>
         </div>
 

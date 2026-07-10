@@ -543,6 +543,12 @@ async function run() {
       && uiSrc.includes('saveTelegramConversationNote')
       && uiSrc.includes('deleteTelegramConversationNote'),
       'missing Telegram split manager UI');
+    assert('telegram status/config cards are compact dashboard controls',
+      uiSrc.includes('tg-info-grid tg-info-grid-compact')
+      && uiSrc.includes('tg-info-card tg-info-card-compact')
+      && uiSrc.includes('tg-config-inline')
+      && uiSrc.includes('tg-test-inline'),
+      'Telegram top status/config cards must stay compact so conversation manager remains first-screen visible');
     assert('telegram profile modal exposes editable identity and policy controls',
       uiSrc.includes('tg-profile-label')
       && uiSrc.includes('tg-profile-aliases')
