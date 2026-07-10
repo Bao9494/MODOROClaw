@@ -1490,6 +1490,76 @@ function ensureTelegramInboundHistoryCapturePatch(vendorDir, homeDir) {
   console.warn('[openclaw-latency] telegram-inbound-history: no telegram bot dist file found');
 }
 
+function ensureTelegramNoMentionPretypingPatch(vendorDir, homeDir) {
+  const distDir = _getOpenclawDistDir(vendorDir);
+  if (!distDir) return;
+  const files = fs.readdirSync(distDir).filter(f => f.startsWith('bot-') && f.endsWith('.js'));
+  const MARKER = '20260710-telegram-no-mention-pretyping-v1';
+  const helperAnchor = 'function createTelegramSendChatActionHandler({ sendChatActionFn, logger, maxConsecutive401 = 10 }) {';
+  const ingressTypingAnchor = '\t\t\tctx.api.sendChatAction(normalizedMsg.chat.id, "typing", threadParams).catch(() => {});';
+  const middlewareTypingAnchor = '\t\t\t\tctx.api.sendChatAction(msg.chat.id, "typing", threadParams).catch(() => {});';
+  const helperCode = [
+    'const MODOROCLAW_TELEGRAM_NO_MENTION_PRETYPING_MARKER = "' + MARKER + '";',
+    'function should9BizClawTelegramPreTyping(ctx, msg) {',
+    '\ttry {',
+    '\t\tconst chatType = msg?.chat?.type;',
+    '\t\tif (chatType !== "group" && chatType !== "supergroup") return true;',
+    '\t\tconst botId = ctx?.me?.id;',
+    '\t\tconst botUsername = String(ctx?.me?.username || "").replace(/^@/, "").toLowerCase();',
+    '\t\tif (botId != null && msg?.reply_to_message?.from?.id === botId) return true;',
+    '\t\tconst text = String(msg?.text || msg?.caption || "");',
+    '\t\tconst entities = [].concat(Array.isArray(msg?.entities) ? msg.entities : [], Array.isArray(msg?.caption_entities) ? msg.caption_entities : []);',
+    '\t\tfor (const ent of entities) {',
+    '\t\t\tif (!ent) continue;',
+    '\t\t\tif (ent.type === "text_mention" && botId != null && ent.user?.id === botId) return true;',
+    '\t\t\tif (ent.type === "bot_command") return true;',
+    '\t\t\tif (ent.type === "mention" && botUsername) {',
+    '\t\t\t\tconst mention = text.slice(ent.offset || 0, (ent.offset || 0) + (ent.length || 0)).replace(/^@/, "").toLowerCase();',
+    '\t\t\t\tif (mention === botUsername) return true;',
+    '\t\t\t}',
+    '\t\t}',
+    '\t\treturn false;',
+    '\t} catch {',
+    '\t\treturn true;',
+    '\t}',
+    '}',
+    helperAnchor,
+  ].join('\n');
+  const ingressTypingCode =
+    '\t\t\tif (should9BizClawTelegramPreTyping(ctx, normalizedMsg)) ctx.api.sendChatAction(normalizedMsg.chat.id, "typing", threadParams).catch(() => {});';
+  const middlewareTypingCode =
+    '\t\t\t\tif (should9BizClawTelegramPreTyping(ctx, msg)) ctx.api.sendChatAction(msg.chat.id, "typing", threadParams).catch(() => {});';
+
+  for (const file of files) {
+    const fp = path.join(distDir, file);
+    let src = fs.readFileSync(fp, 'utf-8');
+    if (!src.includes(helperAnchor)) continue;
+    if (src.includes(MARKER) || src.includes('should9BizClawTelegramPreTyping')) {
+      console.log('[openclaw-latency] telegram-no-mention-pretyping: already patched');
+      return;
+    }
+    for (const [label, anchor] of [
+      ['helper', helperAnchor],
+      ['ingress-typing', ingressTypingAnchor],
+      ['middleware-typing', middlewareTypingAnchor],
+    ]) {
+      if (!src.includes(anchor)) {
+        console.warn('[openclaw-latency] telegram-no-mention-pretyping: ' + label + ' anchor not found in ' + file);
+        _logPatchFailure(homeDir, 'ensureTelegramNoMentionPretypingPatch', `${label} anchor missing in ${file}`);
+        return;
+      }
+    }
+    src = src
+      .replace(helperAnchor, helperCode)
+      .replace(ingressTypingAnchor, ingressTypingCode)
+      .replace(middlewareTypingAnchor, middlewareTypingCode);
+    fs.writeFileSync(fp, src, 'utf-8');
+    console.log('[openclaw-latency] telegram-no-mention-pretyping: applied to ' + file);
+    return;
+  }
+  console.warn('[openclaw-latency] telegram-no-mention-pretyping: no telegram bot dist file found');
+}
+
 function ensureOpenclawLatencyPatches(vendorDir, homeDir) {
   if (process.env.MODOROCLAW_DISABLE_LATENCY_PATCHES === '1') {
     console.log('[openclaw-latency] disabled via MODOROCLAW_DISABLE_LATENCY_PATCHES=1');
@@ -1504,6 +1574,7 @@ function ensureOpenclawLatencyPatches(vendorDir, homeDir) {
   ensureTelegramFastRoleLookupPatch(vendorDir, homeDir);
   ensureTelegramProviderTimeoutGuardPatch(vendorDir, homeDir);
   ensureTelegramInboundHistoryCapturePatch(vendorDir, homeDir);
+  ensureTelegramNoMentionPretypingPatch(vendorDir, homeDir);
 }
 
 function ensureExecApprovalReplyCoalescePatch(vendorDir, homeDir) {
@@ -1839,5 +1910,6 @@ module.exports = {
   ensureExecApprovalReplyCoalescePatch,
   ensureTelegramProviderTimeoutGuardPatch,
   ensureTelegramInboundHistoryCapturePatch,
+  ensureTelegramNoMentionPretypingPatch,
   applyAllVendorPatches,
 };

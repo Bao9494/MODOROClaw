@@ -34,3 +34,13 @@ Branch: telegram-inbound-history-20260710
    - Replace `vendor-patches.js` in runtime.
    - Restart app.
    - Verify ports and Telegram seed/lookup.
+
+## Follow-up: silent no-mention capture
+
+Evidence from runtime testing showed no-mention group messages were correctly saved as `telegram-provider-inbound-skip`, but OpenClaw still showed `typing...` because a global Telegram middleware sent `sendChatAction("typing")` before the mention gate.
+
+Add a second vendor patch:
+
+- `ensureTelegramNoMentionPretypingPatch()`.
+- Keep pre-typing for private chats, bot replies, explicit bot mentions, and bot commands.
+- Suppress pre-typing for normal group/supergroup messages that will only be captured as background memory.

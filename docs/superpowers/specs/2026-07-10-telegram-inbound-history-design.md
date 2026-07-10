@@ -43,9 +43,11 @@ The patch will:
 - The dispatch hook runs before fast-path/LLM so even fast-path handled group messages are archived.
 - The no-mention hook runs before the provider returns `null`, so passive group traffic can enrich future scan/profile data.
 - Direct JSONL append avoids coupling the vendored provider to Electron app internals inside `app.asar`.
+- Group no-mention capture should be silent: OpenClaw must not show Telegram `typing...` for messages that are only being archived as background memory.
 
 ## Acceptance Checks
 
 - Source contract proves vendor-patch code contains the inbound-history marker and both dispatch/no-mention sources.
+- Source contract proves no-mention pre-typing is suppressed while explicit mentions/replies/commands still allow normal typing UX.
 - Existing Telegram memory contract still passes.
 - Runtime smoke verifies all local ports are up after patch.

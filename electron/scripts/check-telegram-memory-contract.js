@@ -60,6 +60,12 @@ async function run() {
       && vendorPatchSrc.includes('telegram-provider-inbound-skip')
       && vendorPatchSrc.includes('ensureTelegramInboundHistoryCapturePatch(vendorDir, homeDir)'),
       'missing Telegram inbound history vendor patch guard');
+    assert('telegram vendor patch suppresses pre-typing for no-mention group messages',
+      vendorPatchSrc.includes('20260710-telegram-no-mention-pretyping-v1')
+      && vendorPatchSrc.includes('ensureTelegramNoMentionPretypingPatch')
+      && vendorPatchSrc.includes('should9BizClawTelegramPreTyping')
+      && vendorPatchSrc.includes('ensureTelegramNoMentionPretypingPatch(vendorDir, homeDir)'),
+      'missing Telegram no-mention pretyping guard');
 
     const group = tg.resolveTelegramConversation({
       telegramChatId: '-1003857797941',

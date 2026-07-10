@@ -3042,7 +3042,7 @@
     },
     {
       "path": "electron/lib/vendor-patches.js",
-      "bytes": 100827
+      "bytes": 104582
     },
     {
       "path": "electron/lib/knowledge.js",
