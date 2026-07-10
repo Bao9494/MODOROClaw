@@ -20,9 +20,9 @@
 - [x] Sua `electron/ui/dashboard.html` de them layout compact.
 - [x] Chay `npm.cmd run guard:telegram-memory`.
 - [x] Chay dashboard UX guard va map check.
-- [ ] Build/patch runtime cai dat de thay doi go live.
-- [ ] Xac minh `app.asar` da co marker UI moi.
-- [ ] Push branch vao `fork`, merge vao `main`, push `fork/main`.
+- [x] Build/patch runtime cai dat de thay doi go live.
+- [x] Xac minh `app.asar` da co marker UI moi.
+- [x] Push branch vao `fork`, merge vao `main`, push `fork/main`.
 
 ## Ghi chu
 
@@ -34,3 +34,11 @@
 - `npm.cmd run guard:telegram-memory`: PASS. Co warning `better-sqlite3` ABI trong clone local, cac assertion Telegram van PASS.
 - `npm.cmd run guard:dashboard-ux`: PASS.
 - `npm.cmd run map:check`: PASS routes=90 ipc=236 capabilities=3.
+- `npm.cmd run build:win`: PASS, tao `dist/9BizClaw Setup 2.4.23.exe`.
+- Runtime installed `app.asar`: PASS marker compact + preview moi, khong con chuoi cu `Bo nho rieng Telegram`.
+
+## Artifact
+
+- Installer: `O:\project\MODOROClaw\dist\9BizClaw Setup 2.4.23.exe`
+- SHA256: `4CED0137A88158EDF002F5F1CC38DA7B71B7586FF6BC2D9C7AB60CFA80D63E2A`
+- Backup runtime cu: `C:\Users\bao.nguyen\AppData\Local\Programs\9bizclaw-backup-dashboard-compact-20260710-142203`
