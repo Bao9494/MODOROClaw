@@ -555,6 +555,12 @@ async function run() {
       && uiSrc.includes('tg-profile-section-notes')
       && uiSrc.includes('saveTelegramConversationProfileSections'),
       'missing Telegram profile modal identity/policy controls');
+    assert('telegram profile modal separates memory editor from rendered preview',
+      uiSrc.includes('tg-profile-section-editor-title')
+      && uiSrc.includes('tg-profile-preview')
+      && uiSrc.includes('tg-profile-preview-title')
+      && uiSrc.includes('tg-profile-preview-collapsible'),
+      'Telegram memory modal must make editor vs AI-loaded preview explicit');
 
     tg.writeTelegramDirectoryCache({
       entries: [{
