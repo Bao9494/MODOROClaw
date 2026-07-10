@@ -3037,12 +3037,12 @@
       "bytes": 133310
     },
     {
-      "path": "electron/ui/wizard.html",
-      "bytes": 117791
+      "path": "electron/lib/vendor-patches.js",
+      "bytes": 120603
     },
     {
-      "path": "electron/lib/vendor-patches.js",
-      "bytes": 104582
+      "path": "electron/ui/wizard.html",
+      "bytes": 117791
     },
     {
       "path": "electron/lib/knowledge.js",
