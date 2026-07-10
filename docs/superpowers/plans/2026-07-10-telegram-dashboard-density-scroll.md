@@ -16,7 +16,17 @@
 
 - Red: `npm.cmd run guard:telegram-memory` FAIL dung assertion `telegram conversation panes are dense and independently scrollable`.
 - Green: `npm.cmd run guard:telegram-memory` PASS sau khi them density/scroll classes.
-- Can chay tiep: `guard:dashboard-ux`, `map:generate`, `map:check`, build/patch runtime.
+- `npm.cmd run guard:dashboard-ux`: PASS.
+- `npm.cmd run map:generate`: PASS.
+- `npm.cmd run map:check`: PASS routes=90 ipc=236 capabilities=3.
+- `npm.cmd run build:win`: PASS, tao installer moi.
+- Runtime installed `app.asar`: PASS density/scroll markers.
+
+## Artifact
+
+- Installer: `O:\project\MODOROClaw\dist\9BizClaw Setup 2.4.23.exe`
+- SHA256: `09271E6D7A3B901E774984F54511EF24A3873606FF2E208D4341DC9AAF488CE9`
+- Backup runtime cu: `C:\Users\bao.nguyen\AppData\Local\Programs\9bizclaw-backup-dashboard-scroll-density-20260710-150644`
 
 ## Ghi chu
 
