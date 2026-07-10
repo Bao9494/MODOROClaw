@@ -73,6 +73,11 @@ async function run() {
       && vendorPatchSrc.includes('fast-telegram-context-lookup')
       && vendorPatchSrc.includes('ensureTelegramFastContextLookupPatch(vendorDir, homeDir)'),
       'missing Telegram fast context lookup vendor patch guard');
+    assert('telegram fast context guard only warns on real sensitive actions',
+      vendorPatchSrc.includes('const sensitiveActionRequest =')
+      && vendorPatchSrc.includes('const rolePolicyChangeRequest =')
+      && vendorPatchSrc.includes('const actionSafety = sensitiveActionRequest || rolePolicyChangeRequest;'),
+      'Telegram fast context actionSafety is too broad for read-only context questions');
 
     const group = tg.resolveTelegramConversation({
       telegramChatId: '-1003857797941',

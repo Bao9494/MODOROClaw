@@ -133,7 +133,7 @@ Large Source Files
 - electron/lib/license.js: 187389 bytes
 - electron/lib/cron-api.js: 186731 bytes
 - electron/lib/cron.js: 133310 bytes
-- electron/lib/vendor-patches.js: 120255 bytes
+- electron/lib/vendor-patches.js: 120603 bytes
 - electron/ui/wizard.html: 117791 bytes
 - electron/lib/knowledge.js: 96863 bytes
 - electron/lib/channels.js: 96705 bytes

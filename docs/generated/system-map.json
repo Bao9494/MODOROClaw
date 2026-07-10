@@ -3038,7 +3038,7 @@
     },
     {
       "path": "electron/lib/vendor-patches.js",
-      "bytes": 120255
+      "bytes": 120603
     },
     {
       "path": "electron/ui/wizard.html",
