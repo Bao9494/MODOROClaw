@@ -1738,9 +1738,13 @@ try {
     vendorPatchSrc.includes('skipProviderRuntimeHooks: true') &&
     vendorPatchSrc.includes('20260710-fast-telegram-context-lookup-v1') &&
     vendorPatchSrc.includes('ensureTelegramFastContextLookupPatch(vendorDir, homeDir)') &&
+    vendorPatchSrc.includes('20260711-telegram-reminder-fastpath-v1') &&
+    vendorPatchSrc.includes('ensureTelegramReminderFastPathPatch(vendorDir, homeDir)') &&
+    vendorPatchSrc.includes('20260711-sessions-spawn-acp-lightcontext-guard-v1') &&
+    vendorPatchSrc.includes('ensureSessionsSpawnAcpLightContextGuardPatch(vendorDir, homeDir)') &&
     vendorPatchSrc.includes('MODOROCLAW_DISABLE_LATENCY_PATCHES');
   if (!hasLatencyPatches) {
-    fail('openclaw latency patches', 'vendor-patches.js must keep explicit-provider, fast-chat-tools, static-model, and API-key session override patches');
+    fail('openclaw latency patches', 'vendor-patches.js must keep explicit-provider, fast-chat-tools, static-model, Telegram reminder fast-path, and sessions_spawn guard patches');
   } else {
     pass('openclaw latency patches wired');
   }

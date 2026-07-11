@@ -784,6 +784,42 @@ function ensureChatToolLatencyPatch(vendorDir, homeDir) {
   console.warn('[openclaw-latency] fast-chat-tools: no openclaw-tools file found');
 }
 
+function ensureSessionsSpawnAcpLightContextGuardPatch(vendorDir, homeDir) {
+  const distDir = _getOpenclawDistDir(vendorDir);
+  if (!distDir) return;
+  const files = fs.readdirSync(distDir).filter(f => f.startsWith('openclaw-tools-') && f.endsWith('.js'));
+  const MARKER = '20260711-sessions-spawn-acp-lightcontext-guard-v1';
+  const anchor =
+    '\t\t\tconst lightContext = params.lightContext === true;\n' +
+    '\t\t\tif (runtime === "acp" && lightContext) throw new Error("lightContext is only supported for runtime=\'subagent\'.");';
+  const replacement =
+    '\t\t\tconst lightContextRequested = params.lightContext === true; // ' + MARKER + '\n' +
+    '\t\t\tconst lightContext = runtime === "acp" ? false : lightContextRequested;\n' +
+    '\t\t\tif (runtime === "acp" && lightContextRequested) {\n' +
+    '\t\t\t\ttry { console.warn("[sessions-spawn-guard] suppressed unsupported lightContext for sessions_spawn runtime=acp marker=' + MARKER + '"); } catch {}\n' +
+    '\t\t\t}';
+
+  for (const file of files) {
+    const fp = path.join(distDir, file);
+    let src = fs.readFileSync(fp, 'utf-8');
+    if (!src.includes('name: "sessions_spawn"')) continue;
+    if (src.includes(MARKER) || src.includes('lightContextRequested')) {
+      console.log('[openclaw-latency] sessions-spawn-acp-lightcontext: already patched');
+      return;
+    }
+    if (!src.includes(anchor)) {
+      console.warn('[openclaw-latency] sessions-spawn-acp-lightcontext: anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureSessionsSpawnAcpLightContextGuardPatch', `anchor missing in ${file}`);
+      return;
+    }
+    src = src.replace(anchor, replacement);
+    fs.writeFileSync(fp, src, 'utf-8');
+    console.log('[openclaw-latency] sessions-spawn-acp-lightcontext: applied to ' + file);
+    return;
+  }
+  console.warn('[openclaw-latency] sessions-spawn-acp-lightcontext: no openclaw-tools file found');
+}
+
 function ensureStaticConfigModelResolvePatch(vendorDir, homeDir) {
   const distDir = _getOpenclawDistDir(vendorDir);
   if (!distDir) return;
@@ -1386,6 +1422,186 @@ function ensureTelegramFastContextLookupPatch(vendorDir, homeDir) {
   console.warn('[openclaw-latency] telegram-fast-context-lookup: no telegram bot dist file found');
 }
 
+function ensureTelegramReminderFastPathPatch(vendorDir, homeDir) {
+  const distDir = _getOpenclawDistDir(vendorDir);
+  if (!distDir) return;
+  const files = fs.readdirSync(distDir).filter(f => f.startsWith('bot-') && f.endsWith('.js'));
+  const MARKER = '20260711-telegram-reminder-fastpath-v1';
+  const helperAnchor = 'const dispatchTelegramMessage = async ({ context, bot, cfg, runtime, replyToMode, streamMode, textLimit, telegramCfg, telegramDeps = defaultTelegramBotDeps, opts }) => {';
+  const dispatchAnchor = '\tlogTelegramDiag("dispatch-start", `streamMode=${streamMode ?? "n/a"} replyToMode=${replyToMode ?? "n/a"}`);\n';
+  const helperLines = [
+    'const MODOROCLAW_TELEGRAM_REMINDER_FASTPATH_MARKER = "' + MARKER + '";',
+    'function normalize9BizClawTelegramReminderText(value) {',
+    '\treturn String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, " ").trim();',
+    '}',
+    'function compact9BizClawTelegramReminderText(value, max = 260) {',
+    '\tconst text = String(value || "").replace(/\\s+/g, " ").trim();',
+    '\treturn text.length > max ? text.slice(0, max - 1).trim() + "\\u2026" : text;',
+    '}',
+    'function safeRead9BizClawTelegramReminderJson(fs, filePath, fallback) {',
+    '\ttry { if (!fs.existsSync(filePath)) return fallback; return JSON.parse(fs.readFileSync(filePath, "utf8")); } catch { return fallback; }',
+    '}',
+    'function parse9BizClawTelegramReminderTime(raw) {',
+    '\tconst text = String(raw || "");',
+    '\tconst normalized = normalize9BizClawTelegramReminderText(text);',
+    '\tif (!/(nhac|remind|hen lich|dat lich|bao luc|nho luc)/.test(normalized)) return null;',
+    '\tif (!/(nhom|group|kenh|chat)/.test(normalized)) return null;',
+    '\tconst match = text.match(/(?:l\\u00fac|luc|v\\u00e0o|vao|at)?\\s*(\\d{1,2})(?:\\s*(?:h|:|g)\\s*(\\d{1,2}))\\b/i);',
+    '\tif (!match) return null;',
+    '\tconst hour = Number(match[1]);',
+    '\tconst minute = match[2] == null || match[2] === "" ? 0 : Number(match[2]);',
+    '\tif (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;',
+    '\tconst dayOffset = /\\b(ngay mai|mai|tomorrow)\\b/.test(normalized) ? 1 : 0;',
+    '\tconst now = new Date();',
+    '\tconst scheduled = new Date(now);',
+    '\tscheduled.setDate(scheduled.getDate() + dayOffset);',
+    '\tscheduled.setHours(hour, minute, 0, 0);',
+    '\tif (dayOffset === 0 && scheduled.getTime() < Date.now() - 60000) scheduled.setDate(scheduled.getDate() + 1);',
+    '\treturn { hour, minute, oneTimeAt: scheduled.toISOString(), display: scheduled.toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", hour12: false }) };',
+    '}',
+    'function extract9BizClawTelegramReminderTarget(raw) {',
+    '\tconst text = String(raw || "");',
+    '\tconst match = text.match(/(?:nh\\u1eafc|nhac|remind|h\\u1eb9n|hen)\\s+(?:cho\\s+)?(?:nh\\u00f3m|nhom|group|k\\u00eanh|kenh|chat)\\s+(.+?)(?=\\s+(?:h\\u1ecdp|hop|meeting|g\\u1eedi|gui|n\\u00f3i|noi|nh\\u1eafn|nhan|b\\u00e1o|bao|l\\u00e0|la|r\\u1eb1ng|rang|v\\u00e0o|vao|l\\u00fac|luc|nh\\u00e9|nhe|nha)\\b|[.,;!?]|$)/i);',
+    '\tconst query = match && match[1] ? match[1].replace(/^[:\\-\\s]+/, "").replace(/[.,;!?]+$/, "").trim() : "";',
+    '\tif (!query || query.length < 2) return null;',
+    '\tconst contentStart = match.index + match[0].length;',
+    '\tlet content = text.slice(contentStart).replace(/^\\s*(?:l\\u00e0|la|r\\u1eb1ng|rang|n\\u00f3i|noi|nh\\u1eafn|nhan|b\\u00e1o|bao|cho|gi\\u00fap|giup)\\s*/i, "").trim();',
+    '\tcontent = content.replace(/\\s+(?:nh\\u00e9|nhe|nha|gi\\u00fap em|giup em)$/i, "").trim();',
+    '\tif (!content) content = "Nh\\u1eafc l\\u1ecbch";',
+    '\treturn { query, content: compact9BizClawTelegramReminderText(content, 500) };',
+    '}',
+    'function read9BizClawTelegramReminderToken(fs, path, baseDir) {',
+    '\tfor (const file of [path.join(baseDir, "cron-api-token.txt"), path.join(process.cwd(), "cron-api-token.txt")]) {',
+    '\t\ttry { if (fs.existsSync(file)) { const token = fs.readFileSync(file, "utf8").trim(); if (token) return token; } } catch {}',
+    '\t}',
+    '\treturn "";',
+    '}',
+    'function collect9BizClawTelegramReminderTargets(fs, path, baseDir) {',
+    '\tconst rowsById = new Map();',
+    '\tconst addRow = (row, source) => {',
+    '\t\tconst chatId = String(row?.chatId || row?.targetChatId || (String(row?.entityId || "").startsWith("telegram:") ? String(row.entityId).slice(9) : "") || "").trim();',
+    '\t\tif (!chatId) return;',
+    '\t\tconst prev = rowsById.get(chatId) || {};',
+    '\t\trowsById.set(chatId, { ...prev, ...row, chatId, source: prev.source ? prev.source + "," + source : source });',
+    '\t};',
+    '\tconst settings = safeRead9BizClawTelegramReminderJson(fs, path.join(baseDir, "telegram-conversation-settings.json"), {});',
+    '\tfor (const item of Object.values(settings || {})) addRow(item, "settings");',
+    '\tconst directory = safeRead9BizClawTelegramReminderJson(fs, path.join(baseDir, "telegram-directory.json"), {});',
+    '\tfor (const item of directory?.entries || []) addRow(item, "directory");',
+    '\tfor (const relDir of ["memory/telegram-groups", "memory/telegram-chats"]) {',
+    '\t\tconst memoryDir = path.join(baseDir, relDir);',
+    '\t\tif (!fs.existsSync(memoryDir)) continue;',
+    '\t\tfor (const file of fs.readdirSync(memoryDir).filter((name) => name.endsWith(".md"))) {',
+    '\t\t\ttry {',
+    '\t\t\t\tconst chatId = file.replace(/\\.md$/i, "");',
+    '\t\t\t\tconst raw = fs.readFileSync(path.join(memoryDir, file), "utf8").slice(0, 2500);',
+    '\t\t\t\tconst label = raw.match(/^label:\\s*"?([^"\\r\\n]+)"?/m)?.[1] || raw.match(/^#\\s+(.+)$/m)?.[1] || chatId;',
+    '\t\t\t\tconst chatType = raw.match(/^chatType:\\s*"?([^"\\r\\n]+)"?/m)?.[1] || "";',
+    '\t\t\t\tconst role = raw.match(/^role:\\s*"?([^"\\r\\n]+)"?/m)?.[1] || "";',
+    '\t\t\t\taddRow({ chatId, label, chatType, role, enabled: true }, "profile");',
+    '\t\t\t} catch {}',
+    '\t\t}',
+    '\t}',
+    '\treturn Array.from(rowsById.values());',
+    '}',
+    'function resolve9BizClawTelegramReminderTarget(rows, query) {',
+    '\tconst q = normalize9BizClawTelegramReminderText(query);',
+    '\tconst compactQ = q.replace(/\\s+/g, "");',
+    '\tconst digits = String(query || "").replace(/\\D+/g, "");',
+    '\tconst scored = rows.filter((row) => row && row.enabled !== false && row.chatId).map((row) => {',
+    '\t\tconst label = String(row.label || row.title || row.name || row.chatId || "");',
+    '\t\tconst aliases = Array.isArray(row.aliases) ? row.aliases.join(" ") : "";',
+    '\t\tconst hay = normalize9BizClawTelegramReminderText([label, aliases, row.chatId, row.entityId, row.username, row.chatType, row.directoryKind].join(" "));',
+    '\t\tconst compactHay = hay.replace(/\\s+/g, "");',
+    '\t\tconst kind = normalize9BizClawTelegramReminderText([row.chatType, row.directoryKind].join(" "));',
+    '\t\tlet score = 0;',
+    '\t\tif (hay === q || compactHay === compactQ) score += 160;',
+    '\t\tif (q && hay.includes(q)) score += 100;',
+    '\t\tif (compactQ && compactHay.includes(compactQ)) score += 90;',
+    '\t\tif (digits && String(row.chatId).includes(digits)) score += 90;',
+    '\t\tif (/(group|supergroup|channel)/.test(kind)) score += 40;',
+    '\t\tif (/(private|user)/.test(kind)) score -= 80;',
+    '\t\tfor (const token of q.split(/\\s+/).filter((part) => part.length >= 2)) if (hay.includes(token)) score += Math.min(18, token.length + 6);',
+    '\t\treturn { row, score };',
+    '\t}).filter((item) => item.score >= 20).sort((a, b) => b.score - a.score);',
+    '\treturn scored[0]?.row || null;',
+    '}',
+    'async function post9BizClawTelegramReminderCron(payload, token) {',
+    '\tconst http = await import("node:http");',
+    '\tconst body = JSON.stringify(payload);',
+    '\treturn await new Promise((resolve) => {',
+    '\t\tconst req = http.request({ hostname: "127.0.0.1", port: 20200, path: "/api/cron/create", method: "POST", headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), "Authorization": "Bearer " + token, "X-9BizClaw-Agent-Channel": "telegram", "X-Source-Channel": "telegram" } }, (res) => {',
+    '\t\t\tlet data = "";',
+    '\t\t\tres.setEncoding("utf8");',
+    '\t\t\tres.on("data", (chunk) => { data += chunk; });',
+    '\t\t\tres.on("end", () => {',
+    '\t\t\t\tlet parsed = null;',
+    '\t\t\t\ttry { parsed = data ? JSON.parse(data) : null; } catch {}',
+    '\t\t\t\tresolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, data: parsed || data });',
+    '\t\t\t});',
+    '\t\t});',
+    '\t\treq.on("error", (err) => resolve({ ok: false, status: 0, error: err?.message || String(err) }));',
+    '\t\treq.write(body);',
+    '\t\treq.end();',
+    '\t});',
+    '}',
+    'async function try9BizClawTelegramReminderFastPath(text) {',
+    '\tconst raw = String(text || "").trim();',
+    '\tif (!raw) return null;',
+    '\tconst time = parse9BizClawTelegramReminderTime(raw);',
+    '\tif (!time) return null;',
+    '\tconst targetSpec = extract9BizClawTelegramReminderTarget(raw);',
+    '\tif (!targetSpec) return null;',
+    '\ttry {',
+    '\t\tconst fs = await import("node:fs");',
+    '\t\tconst path = await import("node:path");',
+    '\t\tconst baseDir = process.env.APPDATA ? path.join(process.env.APPDATA, "9bizclaw") : "";',
+    '\t\tif (!baseDir) return null;',
+    '\t\tconst target = resolve9BizClawTelegramReminderTarget(collect9BizClawTelegramReminderTargets(fs, path, baseDir), targetSpec.query);',
+    '\t\tif (!target) return { delivered: false, text: "Em ch\\u01b0a t\\u00ecm \\u0111\\u01b0\\u1ee3c Telegram group/chat kh\\u1edbp v\\u1edbi \\"" + compact9BizClawTelegramReminderText(targetSpec.query, 120) + "\\". Anh g\\u1eedi em ID nh\\u00f3m ho\\u1eb7c t\\u00ean ch\\u00ednh x\\u00e1c h\\u01a1n nh\\u00e9." };',
+    '\t\tconst token = read9BizClawTelegramReminderToken(fs, path, baseDir);',
+    '\t\tif (!token) return { delivered: false, text: "Em ch\\u01b0a th\\u1ea5y cron API token n\\u1ed9i b\\u1ed9 n\\u00ean ch\\u01b0a t\\u1ea1o nh\\u1eafc l\\u1ecbch \\u0111\\u01b0\\u1ee3c." };',
+    '\t\tconst payload = { channel: "telegram", note: "channel=telegram", label: "Telegram reminder - " + (target.label || target.chatId), oneTimeAt: time.oneTimeAt, targetChatId: String(target.chatId), telegramTargetChatId: String(target.chatId), chatName: String(target.label || ""), content: targetSpec.content, prompt: targetSpec.content, mode: "once" };',
+    '\t\tconst result = await post9BizClawTelegramReminderCron(payload, token);',
+    '\t\tif (!result.ok) return { delivered: false, text: "Em ch\\u01b0a t\\u1ea1o \\u0111\\u01b0\\u1ee3c nh\\u1eafc l\\u1ecbch Telegram. L\\u1ed7i API: " + compact9BizClawTelegramReminderText(result.error || result.data?.error || result.data || result.status, 220) };',
+    '\t\treturn { delivered: true, chatId: String(target.chatId), label: String(target.label || target.chatId), oneTimeAt: time.oneTimeAt, display: time.display, content: targetSpec.content, text: "Em \\u0111\\u00e3 t\\u1ea1o nh\\u1eafc l\\u1ecbch Telegram cho " + (target.label || target.chatId) + " l\\u00fac " + time.display + ".\\n\\nN\\u1ed9i dung: " + targetSpec.content + "\\nID \\u0111\\u00edch nh\\u1eafc: " + target.chatId };',
+    '\t} catch (err) {',
+    '\t\treturn { delivered: false, text: "Em g\\u1eb7p l\\u1ed7i khi t\\u1ea1o nh\\u1eafc l\\u1ecbch Telegram: " + compact9BizClawTelegramReminderText(err?.message || err, 220) };',
+    '\t}',
+    '}',
+  ];
+  const helperCode = helperLines.join('\n') + '\n' + helperAnchor;
+  const fastPathCode =
+    dispatchAnchor +
+    '\tconst fastTelegramReminder = await try9BizClawTelegramReminderFastPath(ctxPayload.RawBody ?? ctxPayload.Body ?? "");\n' +
+    '\tif (fastTelegramReminder) {\n' +
+    '\t\tlogTelegramDiag("telegram-reminder-fastpath", "delivered=" + !!fastTelegramReminder.delivered + " chatId=" + (fastTelegramReminder.chatId || "") + " marker=" + MODOROCLAW_TELEGRAM_REMINDER_FASTPATH_MARKER);\n' +
+    '\t\tawait bot.api.sendMessage(chatId, fastTelegramReminder.text, buildTelegramThreadParams(threadSpec) ?? {});\n' +
+    '\t\tlogTelegramDiag("dispatch-end", "fastPath=telegram-reminder delivered=" + !!fastTelegramReminder.delivered);\n' +
+    '\t\treturn;\n' +
+    '\t}\n';
+
+  for (const file of files) {
+    const fp = path.join(distDir, file);
+    let src = fs.readFileSync(fp, 'utf-8');
+    if (!src.includes(helperAnchor)) continue;
+    if (src.includes(MARKER) || src.includes('try9BizClawTelegramReminderFastPath')) {
+      console.log('[openclaw-latency] telegram-reminder-fastpath: already patched');
+      return;
+    }
+    if (!src.includes(dispatchAnchor)) {
+      console.warn('[openclaw-latency] telegram-reminder-fastpath: dispatch anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureTelegramReminderFastPathPatch', `dispatch anchor missing in ${file}`);
+      return;
+    }
+    src = src.replace(helperAnchor, helperCode).replace(dispatchAnchor, fastPathCode);
+    fs.writeFileSync(fp, src, 'utf-8');
+    console.log('[openclaw-latency] telegram-reminder-fastpath: applied to ' + file);
+    return;
+  }
+  console.warn('[openclaw-latency] telegram-reminder-fastpath: no telegram bot dist file found');
+}
+
 function ensureTelegramProviderTimeoutGuardPatch(vendorDir, homeDir) {
   const distDir = _getOpenclawDistDir(vendorDir);
   if (!distDir) return;
@@ -1737,12 +1953,14 @@ function ensureOpenclawLatencyPatches(vendorDir, homeDir) {
   }
   ensureExplicitProviderDiscoverySkip(vendorDir, homeDir);
   ensureChatToolLatencyPatch(vendorDir, homeDir);
+  ensureSessionsSpawnAcpLightContextGuardPatch(vendorDir, homeDir);
   ensureStaticConfigModelResolvePatch(vendorDir, homeDir);
   ensureSessionOverrideApiKeyPatch(vendorDir, homeDir);
   ensureEmbeddedPiStaticModelResolvePatch(vendorDir, homeDir);
   ensureTelegramFastIdLookupPatch(vendorDir, homeDir);
   ensureTelegramFastRoleLookupPatch(vendorDir, homeDir);
   ensureTelegramFastContextLookupPatch(vendorDir, homeDir);
+  ensureTelegramReminderFastPathPatch(vendorDir, homeDir);
   ensureTelegramProviderTimeoutGuardPatch(vendorDir, homeDir);
   ensureTelegramInboundHistoryCapturePatch(vendorDir, homeDir);
   ensureTelegramNoMentionPretypingPatch(vendorDir, homeDir);
@@ -2078,8 +2296,10 @@ module.exports = {
   ensureAuthCacheTtlExtension,
   ensureSessionFreezePatches,
   ensureOpenclawLatencyPatches,
+  ensureSessionsSpawnAcpLightContextGuardPatch,
   ensureExecApprovalReplyCoalescePatch,
   ensureTelegramFastContextLookupPatch,
+  ensureTelegramReminderFastPathPatch,
   ensureTelegramProviderTimeoutGuardPatch,
   ensureTelegramInboundHistoryCapturePatch,
   ensureTelegramNoMentionPretypingPatch,

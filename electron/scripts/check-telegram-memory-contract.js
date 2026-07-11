@@ -728,6 +728,25 @@ async function run() {
       && vendorPatchSrc.includes('telegram-provider-timeout')
       && vendorPatchSrc.includes('providerTimeoutSettled'),
       'missing Telegram provider timeout guard patch');
+    assert('Telegram reminder fast-path vendor patch exists',
+      vendorPatchSrc.includes('20260711-telegram-reminder-fastpath-v1')
+      && vendorPatchSrc.includes('ensureTelegramReminderFastPathPatch')
+      && vendorPatchSrc.includes('try9BizClawTelegramReminderFastPath')
+      && vendorPatchSrc.includes('/api/cron/create')
+      && vendorPatchSrc.includes('channel=telegram')
+      && vendorPatchSrc.includes('targetChatId')
+      && vendorPatchSrc.includes('oneTimeAt')
+      && vendorPatchSrc.includes('ensureTelegramReminderFastPathPatch(vendorDir, homeDir)'),
+      'missing Telegram reminder fast-path vendor patch guard');
+    assert('sessions_spawn lightContext/acp guard vendor patch exists',
+      vendorPatchSrc.includes('20260711-sessions-spawn-acp-lightcontext-guard-v1')
+      && vendorPatchSrc.includes('ensureSessionsSpawnAcpLightContextGuardPatch')
+      && vendorPatchSrc.includes('sessions_spawn')
+      && vendorPatchSrc.includes('lightContext is only supported')
+      && vendorPatchSrc.includes('runtime === "acp" && lightContext')
+      && vendorPatchSrc.includes('lightContextRequested')
+      && vendorPatchSrc.includes('ensureSessionsSpawnAcpLightContextGuardPatch(vendorDir, homeDir)'),
+      'missing sessions_spawn acp/lightContext guard patch');
     assert('startup launches gateway without blocking on 9Router model warmup',
       gatewaySrc.includes('BOOT_FAST_GATEWAY_SPAWN_MARKER')
       && gatewaySrc.includes('schedule9RouterPostReadyWarmup')
