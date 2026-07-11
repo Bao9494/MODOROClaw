@@ -730,6 +730,7 @@ async function run() {
       'missing Telegram provider timeout guard patch');
     assert('Telegram reminder fast-path vendor patch exists',
       vendorPatchSrc.includes('20260711-telegram-reminder-fastpath-v1')
+      && vendorPatchSrc.includes('20260712-telegram-reminder-target-content-v1')
       && vendorPatchSrc.includes('ensureTelegramReminderFastPathPatch')
       && vendorPatchSrc.includes('try9BizClawTelegramReminderFastPath')
       && vendorPatchSrc.includes('/api/cron/create')

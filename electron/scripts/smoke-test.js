@@ -1739,6 +1739,7 @@ try {
     vendorPatchSrc.includes('20260710-fast-telegram-context-lookup-v1') &&
     vendorPatchSrc.includes('ensureTelegramFastContextLookupPatch(vendorDir, homeDir)') &&
     vendorPatchSrc.includes('20260711-telegram-reminder-fastpath-v1') &&
+    vendorPatchSrc.includes('20260712-telegram-reminder-target-content-v1') &&
     vendorPatchSrc.includes('ensureTelegramReminderFastPathPatch(vendorDir, homeDir)') &&
     vendorPatchSrc.includes('20260711-sessions-spawn-acp-lightcontext-guard-v1') &&
     vendorPatchSrc.includes('ensureSessionsSpawnAcpLightContextGuardPatch(vendorDir, homeDir)') &&
