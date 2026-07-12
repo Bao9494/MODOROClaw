@@ -3033,12 +3033,12 @@
       "bytes": 186731
     },
     {
-      "path": "electron/lib/cron.js",
-      "bytes": 133310
+      "path": "electron/lib/vendor-patches.js",
+      "bytes": 140222
     },
     {
-      "path": "electron/lib/vendor-patches.js",
-      "bytes": 120603
+      "path": "electron/lib/cron.js",
+      "bytes": 133310
     },
     {
       "path": "electron/ui/wizard.html",

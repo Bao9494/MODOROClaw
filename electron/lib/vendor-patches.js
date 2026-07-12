@@ -1016,15 +1016,52 @@ function ensureEmbeddedPiStaticModelResolvePatch(vendorDir, homeDir) {
   console.warn('[openclaw-latency] pi-static-model-resolve: no pi runner file found');
 }
 
+function ensureTelegramDispatchDiagnosticsPatch(vendorDir, homeDir) {
+  const distDir = _getOpenclawDistDir(vendorDir);
+  if (!distDir) return;
+  const files = fs.readdirSync(distDir).filter(f => f.startsWith('bot-') && f.endsWith('.js'));
+  const MARKER = '20260712-telegram-dispatch-diagnostics-v1';
+  const helperAnchor = 'const dispatchTelegramMessage = async ({ context, bot, cfg, runtime, replyToMode, streamMode, textLimit, telegramCfg, telegramDeps = defaultTelegramBotDeps, opts }) => {';
+  const contextAnchor = '\tconst { ctxPayload, msg, chatId, isGroup, groupConfig, topicConfig, threadSpec, historyKey, historyLimit, groupHistories, route, skillFilter, sendTyping, sendRecordVoice, ackReactionPromise, reactionApi, removeAckAfterReply, statusReactionController } = context;\n';
+  const diagnosticsCode =
+    contextAnchor +
+    '\tconst MODOROCLAW_TELEGRAM_DISPATCH_DIAGNOSTICS_MARKER = "' + MARKER + '";\n' +
+    '\tconst diagStartMs = Date.now();\n' +
+    '\tconst diagMessageId = typeof msg.message_id === "number" ? msg.message_id : "n/a";\n' +
+    '\tconst diagSessionKey = ctxPayload.SessionKey ?? "n/a";\n' +
+    '\tconst logTelegramDiag = (stage, extra = "") => {\n' +
+    '\t\truntime.log?.(`[telegram-diag] stage=${stage} chat=${chatId} msg=${diagMessageId} session=${diagSessionKey} elapsedMs=${Date.now() - diagStartMs}${extra ? ` ${extra}` : ""}`);\n' +
+    '\t};\n' +
+    '\tlogTelegramDiag("dispatch-start", `streamMode=${streamMode ?? "n/a"} replyToMode=${replyToMode ?? "n/a"}`);\n';
+
+  for (const file of files) {
+    const fp = path.join(distDir, file);
+    let src = fs.readFileSync(fp, 'utf-8');
+    if (!src.includes(helperAnchor)) continue;
+    if (src.includes(MARKER) || src.includes('const logTelegramDiag =')) {
+      console.log('[openclaw-latency] telegram-dispatch-diagnostics: already patched');
+      return;
+    }
+    if (!src.includes(contextAnchor)) {
+      console.warn('[openclaw-latency] telegram-dispatch-diagnostics: context anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureTelegramDispatchDiagnosticsPatch', `context anchor missing in ${file}`);
+      return;
+    }
+    src = src.replace(contextAnchor, diagnosticsCode);
+    fs.writeFileSync(fp, src, 'utf-8');
+    console.log('[openclaw-latency] telegram-dispatch-diagnostics: applied to ' + file);
+    return;
+  }
+  console.warn('[openclaw-latency] telegram-dispatch-diagnostics: no telegram bot dist file found');
+}
+
 function ensureTelegramFastIdLookupPatch(vendorDir, homeDir) {
   const distDir = _getOpenclawDistDir(vendorDir);
   if (!distDir) return;
   const files = fs.readdirSync(distDir).filter(f => f.startsWith('bot-') && f.endsWith('.js'));
   const MARKER = '20260708-fast-telegram-id-lookup-v1';
   const helperAnchor = 'const dispatchTelegramMessage = async ({ context, bot, cfg, runtime, replyToMode, streamMode, textLimit, telegramCfg, telegramDeps = defaultTelegramBotDeps, opts }) => {';
-  const dispatchAnchor =
-    '\tlogTelegramDiag("dispatch-start", `streamMode=${streamMode ?? "n/a"} replyToMode=${replyToMode ?? "n/a"}`);\n' +
-    '\tconst draftMaxChars = Math.min(textLimit, 4096);';
+  const dispatchAnchor = '\tconst draftMaxChars = Math.min(textLimit, 4096);';
   const helperCode =
     'const MODOROCLAW_FAST_TELEGRAM_ID_LOOKUP_MARKER = "' + MARKER + '";\n' +
     'function normalize9BizClawTelegramLookupText(value) {\n' +
@@ -1095,7 +1132,6 @@ function ensureTelegramFastIdLookupPatch(vendorDir, homeDir) {
     '}\n' +
     helperAnchor;
   const fastPathCode =
-    '\tlogTelegramDiag("dispatch-start", `streamMode=${streamMode ?? "n/a"} replyToMode=${replyToMode ?? "n/a"}`);\n' +
     '\tconst fastTelegramIdLookup = await try9BizClawTelegramIdLookupFastPath(ctxPayload.RawBody ?? ctxPayload.Body ?? "");\n' +
     '\tif (fastTelegramIdLookup) {\n' +
     '\t\tconst fastText = "ID nhóm Telegram " + fastTelegramIdLookup.label + " là:\\n\\n" + fastTelegramIdLookup.chatId;\n' +
@@ -1659,9 +1695,10 @@ function ensureTelegramProviderTimeoutGuardPatch(vendorDir, homeDir) {
     '\ttry {';
   const callStartAnchor = '\t\t({queuedFinal} = await telegramDeps.dispatchReplyWithBufferedBlockDispatcher({';
   const callStartCode = '\t\tconst providerReplyPromise = telegramDeps.dispatchReplyWithBufferedBlockDispatcher({';
-  const callEndAnchor =
+  const callEndAnchorWithDiag =
     '\t\t}));\n' +
     '\t\tlogTelegramDiag("reply-dispatch-done", `queuedFinal=${queuedFinal}`);';
+  const callEndAnchorPlain = '\t\t}));';
   const callEndCode =
     '\t\t});\n' +
     '\t\t({queuedFinal} = await run9BizClawTelegramProviderTimeoutGuard({\n' +
@@ -1711,17 +1748,22 @@ function ensureTelegramProviderTimeoutGuardPatch(vendorDir, homeDir) {
       console.log('[openclaw-latency] telegram-provider-timeout: already patched');
       return;
     }
+    const callEndAnchor = scopedIndexOf(src, callStartAnchor, callEndAnchorWithDiag) >= 0 ? callEndAnchorWithDiag : callEndAnchorPlain;
     for (const [label, anchor] of [
       ['helper', helperAnchor],
       ['before-try', beforeTryAnchor],
       ['call-start', callStartAnchor],
-      ['call-end', callEndAnchor],
     ]) {
       if (!src.includes(anchor)) {
         console.warn('[openclaw-latency] telegram-provider-timeout: ' + label + ' anchor not found in ' + file);
         _logPatchFailure(homeDir, 'ensureTelegramProviderTimeoutGuardPatch', `${label} anchor missing in ${file}`);
         return;
       }
+    }
+    if (scopedIndexOf(src, callStartAnchor, callEndAnchor) < 0) {
+      console.warn('[openclaw-latency] telegram-provider-timeout: call-end anchor not found in ' + file);
+      _logPatchFailure(homeDir, 'ensureTelegramProviderTimeoutGuardPatch', `call-end anchor missing in ${file}`);
+      return;
     }
     for (const item of callbackAnchors) {
       if (scopedIndexOf(src, callStartAnchor, item.anchor) < 0) {
@@ -1733,8 +1775,8 @@ function ensureTelegramProviderTimeoutGuardPatch(vendorDir, homeDir) {
     src = src
       .replace(helperAnchor, helperCode)
       .replace(beforeTryAnchor, beforeTryCode)
-      .replace(callStartAnchor, callStartCode)
-      .replace(callEndAnchor, callEndCode);
+      .replace(callStartAnchor, callStartCode);
+    src = scopedReplace(src, callStartCode, callEndAnchor, callEndCode);
     for (const item of callbackAnchors) src = scopedReplace(src, callStartCode, item.anchor, item.replacement);
     fs.writeFileSync(fp, src, 'utf-8');
     console.log('[openclaw-latency] telegram-provider-timeout: applied to ' + file);
@@ -1892,6 +1934,7 @@ function ensureTelegramNoMentionPretypingPatch(vendorDir, homeDir) {
   const MARKER = '20260710-telegram-no-mention-pretyping-v1';
   const helperAnchor = 'function createTelegramSendChatActionHandler({ sendChatActionFn, logger, maxConsecutive401 = 10 }) {';
   const ingressTypingAnchor = '\t\t\tctx.api.sendChatAction(normalizedMsg.chat.id, "typing", threadParams).catch(() => {});';
+  const ingressInsertAnchor = '\t\tif (normalizedMsg.from?.id != null && normalizedMsg.from.id === ctx.me?.id) return;\n';
   const middlewareTypingAnchor = '\t\t\t\tctx.api.sendChatAction(msg.chat.id, "typing", threadParams).catch(() => {});';
   const helperCode = [
     'const MODOROCLAW_TELEGRAM_NO_MENTION_PRETYPING_MARKER = "' + MARKER + '";',
@@ -1922,6 +1965,12 @@ function ensureTelegramNoMentionPretypingPatch(vendorDir, homeDir) {
   ].join('\n');
   const ingressTypingCode =
     '\t\t\tif (should9BizClawTelegramPreTyping(ctx, normalizedMsg)) ctx.api.sendChatAction(normalizedMsg.chat.id, "typing", threadParams).catch(() => {});';
+  const ingressInsertCode =
+    ingressInsertAnchor +
+    '\t\ttry {\n' +
+    '\t\t\tconst threadParams = normalizedMsg.message_thread_id != null ? { message_thread_id: normalizedMsg.message_thread_id } : void 0;\n' +
+    '\t\t\tif (should9BizClawTelegramPreTyping(ctx, normalizedMsg)) ctx.api.sendChatAction(normalizedMsg.chat.id, "typing", threadParams).catch(() => {});\n' +
+    '\t\t} catch {}\n';
   const middlewareTypingCode =
     '\t\t\t\tif (should9BizClawTelegramPreTyping(ctx, msg)) ctx.api.sendChatAction(msg.chat.id, "typing", threadParams).catch(() => {});';
 
@@ -1935,8 +1984,7 @@ function ensureTelegramNoMentionPretypingPatch(vendorDir, homeDir) {
     }
     for (const [label, anchor] of [
       ['helper', helperAnchor],
-      ['ingress-typing', ingressTypingAnchor],
-      ['middleware-typing', middlewareTypingAnchor],
+      ['ingress-insert', src.includes(ingressTypingAnchor) ? ingressTypingAnchor : ingressInsertAnchor],
     ]) {
       if (!src.includes(anchor)) {
         console.warn('[openclaw-latency] telegram-no-mention-pretyping: ' + label + ' anchor not found in ' + file);
@@ -1944,10 +1992,11 @@ function ensureTelegramNoMentionPretypingPatch(vendorDir, homeDir) {
         return;
       }
     }
-    src = src
-      .replace(helperAnchor, helperCode)
-      .replace(ingressTypingAnchor, ingressTypingCode)
-      .replace(middlewareTypingAnchor, middlewareTypingCode);
+    src = src.replace(helperAnchor, helperCode);
+    src = src.includes(ingressTypingAnchor)
+      ? src.replace(ingressTypingAnchor, ingressTypingCode)
+      : src.replace(ingressInsertAnchor, ingressInsertCode);
+    if (src.includes(middlewareTypingAnchor)) src = src.replace(middlewareTypingAnchor, middlewareTypingCode);
     fs.writeFileSync(fp, src, 'utf-8');
     console.log('[openclaw-latency] telegram-no-mention-pretyping: applied to ' + file);
     return;
@@ -1966,6 +2015,7 @@ function ensureOpenclawLatencyPatches(vendorDir, homeDir) {
   ensureStaticConfigModelResolvePatch(vendorDir, homeDir);
   ensureSessionOverrideApiKeyPatch(vendorDir, homeDir);
   ensureEmbeddedPiStaticModelResolvePatch(vendorDir, homeDir);
+  ensureTelegramDispatchDiagnosticsPatch(vendorDir, homeDir);
   ensureTelegramFastIdLookupPatch(vendorDir, homeDir);
   ensureTelegramFastRoleLookupPatch(vendorDir, homeDir);
   ensureTelegramFastContextLookupPatch(vendorDir, homeDir);
@@ -2307,6 +2357,7 @@ module.exports = {
   ensureOpenclawLatencyPatches,
   ensureSessionsSpawnAcpLightContextGuardPatch,
   ensureExecApprovalReplyCoalescePatch,
+  ensureTelegramDispatchDiagnosticsPatch,
   ensureTelegramFastContextLookupPatch,
   ensureTelegramReminderFastPathPatch,
   ensureTelegramProviderTimeoutGuardPatch,

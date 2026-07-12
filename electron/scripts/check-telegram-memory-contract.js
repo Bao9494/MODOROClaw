@@ -722,6 +722,12 @@ async function run() {
       && vendorPatchSrc.includes('try9BizClawTelegramRoleLookupFastPath')
       && vendorPatchSrc.includes('fast-telegram-role-lookup'),
       'missing Telegram fast role lookup patch');
+    assert('Telegram dispatch diagnostics patch seeds clean vendor before fast paths',
+      vendorPatchSrc.includes('20260712-telegram-dispatch-diagnostics-v1')
+      && vendorPatchSrc.includes('ensureTelegramDispatchDiagnosticsPatch')
+      && vendorPatchSrc.includes('const logTelegramDiag =')
+      && vendorPatchSrc.indexOf('ensureTelegramDispatchDiagnosticsPatch(vendorDir, homeDir)') < vendorPatchSrc.indexOf('ensureTelegramFastIdLookupPatch(vendorDir, homeDir)'),
+      'missing clean-vendor Telegram dispatch diagnostics bootstrap');
     assert('Telegram provider timeout guard vendor patch exists',
       vendorPatchSrc.includes('20260709-telegram-provider-timeout-guard-v1')
       && vendorPatchSrc.includes('ensureTelegramProviderTimeoutGuardPatch')
