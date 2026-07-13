@@ -74,6 +74,7 @@ Kết luận: hiệu quả chính đến từ việc filter trước khi scoring
 | Seed danh sách conversation | `telegram-memory.js` đọc `openclaw.json`, `custom-crons.json`, log/cache Telegram và profile đã có để seed `memory/telegram-chats/<chatId>.md`; dữ liệu scan giàu được chuyển tiếp vào hồ sơ conversation | Đã thêm nền tảng |
 | Directory/cache Telegram | `electron/lib/telegram-directory.js`, `telegram-directory.json`, `/api/telegram/directory`, `/api/telegram/directory/refresh` | Đã thêm nền tảng |
 | Approval payload guard | `channels.js` lọc raw `/approve`; `vendor-patches.js` coalesce `buildExecApprovalPendingReplyPayload()` để không bắn `Run/Pending command` ra chat | Đã thêm guard |
+| Provider auth error guard | `vendor-patches.js` sanitize lỗi 9Router/LLM `401 token_expired` ngay tại biên `sendPayload` của Telegram vendor bot, để CEO thấy thông báo vận hành ngắn thay vì raw JSON/provider stack | Đã thêm guard |
 | Regression guard | `smoke-test.js`, `check-media-library-contract.js`, `check-telegram-memory-contract.js` | Đã thêm |
 
 ## Mô hình Telegram mới

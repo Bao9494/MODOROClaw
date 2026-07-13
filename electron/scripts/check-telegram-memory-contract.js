@@ -750,6 +750,13 @@ async function run() {
       && vendorPatchSrc.includes('telegram-provider-timeout')
       && vendorPatchSrc.includes('providerTimeoutSettled'),
       'missing Telegram provider timeout guard patch');
+    assert('Telegram provider auth errors are sanitized before Telegram delivery',
+      vendorPatchSrc.includes('20260713-telegram-provider-auth-error-guard-v1')
+      && vendorPatchSrc.includes('sanitize9BizClawTelegramProviderAuthErrorPayload')
+      && vendorPatchSrc.includes('token_expired')
+      && vendorPatchSrc.includes('Provided authentication token is expired')
+      && vendorPatchSrc.includes('9Router/LLM provider'),
+      'missing Telegram provider auth error sanitizer patch');
     assert('startup launches gateway without blocking on 9Router model warmup',
       gatewaySrc.includes('BOOT_FAST_GATEWAY_SPAWN_MARKER')
       && gatewaySrc.includes('schedule9RouterPostReadyWarmup')

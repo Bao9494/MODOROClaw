@@ -4,6 +4,26 @@
 
 ---
 
+## 2026-07-13
+
+### Telegram provider auth error guard
+
+**File(s):** `electron/lib/vendor-patches.js`, `electron/scripts/check-telegram-memory-contract.js`, `docs/plans/2026-07-13-telegram-provider-auth-error-guard.md`, `docs/telegram-zalo-architecture-parity.md`
+
+**Root cause:** Khi 9Router/OAuth session hết hạn, provider `ninerouter/zalo` trả `401 token_expired`. Luồng Telegram vendor bot đưa payload lỗi này qua `sendPayload` riêng, không đi qua filter chính trong `channels.js`, nên CEO có thể thấy raw JSON/provider stack trong Telegram.
+
+**Fix/Change:**
+- Thêm vendor patch `20260713-telegram-provider-auth-error-guard-v1`.
+- Sanitize payload có `token_expired`, `Provided authentication token is expired`, hoặc stack `401 [codex/...]` ngay tại biên `sendPayload` của Telegram bot.
+- Chuyển outgoing text sang thông báo vận hành ngắn, không kèm raw JSON và đặt `isError=false` để tránh silent error reply.
+- Thêm regression assertion trong `check-telegram-memory-contract.js`.
+
+**Verification:** Đã chạy red-green contract: assertion mới fail trước khi sửa và PASS sau khi thêm patch. Đã áp runtime, restart 9BizClaw/OpenClaw, kiểm tra port `18789`, `20128`, `20200` listen. E2E Telegram Web với prompt `E2E-202607132353-AUTHGUARD` xác nhận log có `telegram-provider-auth-error-sanitized` marker `20260713-telegram-provider-auth-error-guard-v1`, `sendPayload-start ... textLen=163 isError=false`, và UI Telegram hiển thị thông báo ngắn thay vì raw `401` JSON.
+
+**State:** Source fix và runtime hotfix đã xong. 9Router/OAuth session vẫn cần đăng nhập/refresh lại để LLM trả lời bình thường; guard này chỉ chống rò payload lỗi ra Telegram.
+
+---
+
 ## 2026-07-09
 
 ### Telegram fast role lookup and source-scoped cron name routing

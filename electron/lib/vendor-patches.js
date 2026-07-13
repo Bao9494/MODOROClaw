@@ -1601,6 +1601,61 @@ function ensureTelegramProviderTimeoutGuardPatch(vendorDir, homeDir) {
   console.warn('[openclaw-latency] telegram-provider-timeout: no telegram bot dist file found');
 }
 
+function ensureTelegramProviderAuthErrorGuardPatch(vendorDir, homeDir) {
+  const distDir = _getOpenclawDistDir(vendorDir);
+  if (!distDir) return;
+  const files = fs.readdirSync(distDir).filter(f => f.startsWith('bot-') && f.endsWith('.js'));
+  const MARKER = '20260713-telegram-provider-auth-error-guard-v1';
+  const helperAnchor = 'const dispatchTelegramMessage = async ({ context, bot, cfg, runtime, replyToMode, streamMode, textLimit, telegramCfg, telegramDeps = defaultTelegramBotDeps, opts }) => {';
+  const helperCode =
+    'const MODOROCLAW_TELEGRAM_PROVIDER_AUTH_ERROR_GUARD_MARKER = "' + MARKER + '";\n' +
+    'const MODOROCLAW_TELEGRAM_PROVIDER_AUTH_ERROR_SAFE_TEXT = "D\\u1ea1 S\\u1ebfp, phi\\u00ean \\u0111\\u0103ng nh\\u1eadp 9Router/LLM provider \\u0111\\u00e3 h\\u1ebft h\\u1ea1n n\\u00ean em ch\\u01b0a x\\u1eed l\\u00fd \\u0111\\u01b0\\u1ee3c c\\u00e2u c\\u1ea7n AI.\\n\\nAnh m\\u1edf 9Router v\\u00e0 \\u0111\\u0103ng nh\\u1eadp/refresh l\\u1ea1i provider, r\\u1ed3i nh\\u1eafn l\\u1ea1i gi\\u00fap em.";\n' +
+    'function is9BizClawTelegramProviderAuthErrorText(text) {\n' +
+    '\tif (!text || typeof text !== "string") return false;\n' +
+    '\treturn /token_expired|Provided authentication token is expired|authentication token is expired|try signing in again|401\\s+\\[codex\\/|["\\\\\']status["\\\\\']\\s*:\\s*401|["\\\\\']code["\\\\\']\\s*:\\s*["\\\\\']token_expired/i.test(text);\n' +
+    '}\n' +
+    'function sanitize9BizClawTelegramProviderAuthErrorPayload(payload, logTelegramDiag) {\n' +
+    '\tif (!payload || !is9BizClawTelegramProviderAuthErrorText(payload.text)) return payload;\n' +
+    '\ttry { logTelegramDiag("telegram-provider-auth-error-sanitized", `textLen=${payload.text.length} marker=${MODOROCLAW_TELEGRAM_PROVIDER_AUTH_ERROR_GUARD_MARKER}`); } catch {}\n' +
+    '\treturn { ...payload, text: MODOROCLAW_TELEGRAM_PROVIDER_AUTH_ERROR_SAFE_TEXT, isError: false };\n' +
+    '}\n' +
+    helperAnchor;
+  const sendPayloadAnchor =
+    '\tconst sendPayload = async (payload) => {\n' +
+    '\t\tconst payloadTextLen = typeof payload.text === "string" ? payload.text.length : 0;';
+  const sendPayloadCode =
+    '\tconst sendPayload = async (payload) => {\n' +
+    '\t\tpayload = sanitize9BizClawTelegramProviderAuthErrorPayload(payload, logTelegramDiag);\n' +
+    '\t\tconst payloadTextLen = typeof payload.text === "string" ? payload.text.length : 0;';
+
+  for (const file of files) {
+    const fp = path.join(distDir, file);
+    let src = fs.readFileSync(fp, 'utf-8');
+    if (!src.includes(helperAnchor)) continue;
+    if (src.includes(MARKER) || src.includes('sanitize9BizClawTelegramProviderAuthErrorPayload')) {
+      console.log('[openclaw-latency] telegram-provider-auth-error: already patched');
+      return;
+    }
+    for (const [label, anchor] of [
+      ['helper', helperAnchor],
+      ['send-payload', sendPayloadAnchor],
+    ]) {
+      if (!src.includes(anchor)) {
+        console.warn('[openclaw-latency] telegram-provider-auth-error: ' + label + ' anchor not found in ' + file);
+        _logPatchFailure(homeDir, 'ensureTelegramProviderAuthErrorGuardPatch', `${label} anchor missing in ${file}`);
+        return;
+      }
+    }
+    src = src
+      .replace(helperAnchor, helperCode)
+      .replace(sendPayloadAnchor, sendPayloadCode);
+    fs.writeFileSync(fp, src, 'utf-8');
+    console.log('[openclaw-latency] telegram-provider-auth-error: applied to ' + file);
+    return;
+  }
+  console.warn('[openclaw-latency] telegram-provider-auth-error: no telegram bot dist file found');
+}
+
 function ensureTelegramInboundHistoryCapturePatch(vendorDir, homeDir) {
   const distDir = _getOpenclawDistDir(vendorDir);
   if (!distDir) return;
@@ -1827,6 +1882,7 @@ function ensureOpenclawLatencyPatches(vendorDir, homeDir) {
   ensureTelegramFastRoleLookupPatch(vendorDir, homeDir);
   ensureTelegramFastContextLookupPatch(vendorDir, homeDir);
   ensureTelegramProviderTimeoutGuardPatch(vendorDir, homeDir);
+  ensureTelegramProviderAuthErrorGuardPatch(vendorDir, homeDir);
   ensureTelegramInboundHistoryCapturePatch(vendorDir, homeDir);
   ensureTelegramNoMentionPretypingPatch(vendorDir, homeDir);
 }
@@ -2164,6 +2220,7 @@ module.exports = {
   ensureExecApprovalReplyCoalescePatch,
   ensureTelegramFastContextLookupPatch,
   ensureTelegramProviderTimeoutGuardPatch,
+  ensureTelegramProviderAuthErrorGuardPatch,
   ensureTelegramInboundHistoryCapturePatch,
   ensureTelegramNoMentionPretypingPatch,
   applyAllVendorPatches,
