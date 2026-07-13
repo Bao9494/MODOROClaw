@@ -1252,6 +1252,18 @@ function ensureTelegramFastContextLookupPatch(vendorDir, homeDir) {
   const oldWantsContextLine = '\tconst wantsContext = /\\b(ket hop|nguon|directory|profile|ho so|history|lich su|member metadata|metadata|quyen|owner|admin|member|kien thuc|luu y|tuong tac|response mode|bat moi tin|doi role|phan loai|file noi bo|cron|tool)\\b/.test(normalized);';
   const legacyWantsContextLine = '\tconst wantsContext = /\\b(ket hop|nguon|directory|profile|ho so|history|lich su|member metadata|metadata|quyen|owner|admin|member|kien thuc|luu y|tuong tac|response mode|bat moi tin|doi role|phan loai)\\b/.test(normalized);';
   const newWantsContextLine = '\tconst wantsContext = /\\b(ket hop|nguon|directory|profile|ho so|history|lich su|member metadata|metadata|quyen|owner|admin|member|kien thuc|luu y|tuong tac|' + responseModeContextPattern + '|phan loai|file noi bo|cron|tool)\\b/.test(normalized);';
+  const oldFastContextLogLine = '\t\tlogTelegramDiag("fast-telegram-context-lookup", "chatId=" + fastTelegramContextLookup.chatId + " role=" + fastTelegramContextLookup.role + " actionSafety=" + fastTelegramContextLookup.actionSafety + " marker=" + MODOROCLAW_FAST_TELEGRAM_CONTEXT_LOOKUP_MARKER);';
+  const legacyFastContextLogLine = '\t\tlogTelegramDiag("fast-telegram-context-lookup", `chatId=${fastTelegramContextLookup.chatId} role=${fastTelegramContextLookup.role} actionSafety=${fastTelegramContextLookup.actionSafety} marker=${MODOROCLAW_FAST_TELEGRAM_CONTEXT_LOOKUP_MARKER}`);';
+  const newFastContextLogLine = '\t\tlogTelegramDiag("fast-telegram-context-lookup", "chatId=" + fastTelegramContextLookup.chatId + " role=" + fastTelegramContextLookup.role + " actionSafety=" + fastTelegramContextLookup.actionSafety + " compact=" + (fastTelegramContextLookup.compact === true) + " marker=" + MODOROCLAW_FAST_TELEGRAM_CONTEXT_LOOKUP_MARKER);';
+  const compactResponseModeBlock =
+    '\t\tconst wantsCompactResponseMode = /\\b(response mode|che do|che do phan hoi|phan hoi|moi tin|mention)\\b/.test(normalized) && !/\\b(ho so|profile|history|lich su|member|metadata|quyen|owner|admin|kien thuc|luu y|tuong tac|nguon|ket hop|file noi bo|cron|tool)\\b/.test(normalized);\n' +
+    '\t\tif (wantsCompactResponseMode) {\n' +
+    '\t\t\tconst compactModeRaw = String(picked.responseMode || "chua ro").toLowerCase();\n' +
+    '\t\t\tconst compactModeLabel = compactModeRaw === "all" ? "M\\u1ecdi tin" : (compactModeRaw === "mention" ? "@mention" : (compactModeRaw === "off" || compactModeRaw === "disabled" ? "T\\u1eaft" : compactModeRaw));\n' +
+    '\t\t\tconst compactResponseModeText = "Nh\\u00f3m " + (picked.label || picked.chatId) + " \\u0111ang \\u1edf ch\\u1ebf \\u0111\\u1ed9 ph\\u1ea3n h\\u1ed3i: " + compactModeLabel + ", enabled=" + (picked.enabled !== false) + ".";\n' +
+    '\t\t\treturn { chatId: picked.chatId, role: picked.role || "unknown", actionSafety: false, compact: true, text: compactResponseModeText };\n' +
+    '\t\t}\n';
+  const compactResponseModeAnchor = '\t\tlet profileRaw = "";';
   const helperAnchor = 'const dispatchTelegramMessage = async ({ context, bot, cfg, runtime, replyToMode, streamMode, textLimit, telegramCfg, telegramDeps = defaultTelegramBotDeps, opts }) => {';
   const dispatchAnchor = '\tlogTelegramDiag("dispatch-start", `streamMode=${streamMode ?? "n/a"} replyToMode=${replyToMode ?? "n/a"}`);\n';
   const helperLines = [
@@ -1366,6 +1378,7 @@ function ensureTelegramFastContextLookupPatch(vendorDir, homeDir) {
     '\t\t}).filter((item) => item.score > 0).sort((a, b) => b.score - a.score);',
     '\t\tconst picked = scored[0]?.row;',
     '\t\tif (!picked) return null;',
+    compactResponseModeBlock.trimEnd(),
     '\t\tlet profileRaw = "";',
     '\t\tconst profilePath = picked.profilePath && fs.existsSync(picked.profilePath) ? picked.profilePath : path.join(baseDir, "memory", "telegram-chats", picked.chatId + ".md");',
     '\t\tif (fs.existsSync(profilePath)) { try { profileRaw = fs.readFileSync(profilePath, "utf8"); } catch {} }',
@@ -1389,7 +1402,7 @@ function ensureTelegramFastContextLookupPatch(vendorDir, homeDir) {
     dispatchAnchor +
     '\tconst fastTelegramContextLookup = await try9BizClawTelegramContextLookupFastPath(ctxPayload.RawBody ?? ctxPayload.Body ?? "", msg?.from?.id);\n' +
     '\tif (fastTelegramContextLookup) {\n' +
-    '\t\tlogTelegramDiag("fast-telegram-context-lookup", "chatId=" + fastTelegramContextLookup.chatId + " role=" + fastTelegramContextLookup.role + " actionSafety=" + fastTelegramContextLookup.actionSafety + " marker=" + MODOROCLAW_FAST_TELEGRAM_CONTEXT_LOOKUP_MARKER);\n' +
+    newFastContextLogLine + '\n' +
     '\t\tawait bot.api.sendMessage(chatId, fastTelegramContextLookup.text, buildTelegramThreadParams(threadSpec) ?? {});\n' +
     '\t\tlogTelegramDiag("dispatch-end", "fastPath=telegram-context-lookup delivered=true");\n' +
     '\t\treturn;\n' +
@@ -1413,6 +1426,22 @@ function ensureTelegramFastContextLookupPatch(vendorDir, homeDir) {
         }
         src = src.replace(upgradeAnchor, newWantsContextLine);
         upgraded = true;
+      }
+      if (!src.includes('const wantsCompactResponseMode')) {
+        if (!src.includes(compactResponseModeAnchor)) {
+          console.warn('[openclaw-latency] telegram-fast-context-lookup: compact response-mode anchor not found in ' + file);
+          _logPatchFailure(homeDir, 'ensureTelegramFastContextLookupPatch', `compact response-mode anchor missing in ${file}`);
+          return;
+        }
+        src = src.replace(compactResponseModeAnchor, compactResponseModeBlock + compactResponseModeAnchor);
+        upgraded = true;
+      }
+      if (!src.includes('compact=" + (fastTelegramContextLookup.compact === true)') && !src.includes('compact=${fastTelegramContextLookup.compact === true}')) {
+        const logAnchor = src.includes(oldFastContextLogLine) ? oldFastContextLogLine : (src.includes(legacyFastContextLogLine) ? legacyFastContextLogLine : '');
+        if (logAnchor) {
+          src = src.replace(logAnchor, newFastContextLogLine);
+          upgraded = true;
+        }
       }
       if (upgraded) {
         fs.writeFileSync(fp, src, 'utf-8');

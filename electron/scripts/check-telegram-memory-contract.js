@@ -81,6 +81,11 @@ async function run() {
       && vendorPatchSrc.includes('oldNormalizeContextLine')
       && vendorPatchSrc.includes('newNormalizeContextLine'),
       'Telegram natural questions like "chế độ phản hồi" must normalize to "che do phan hoi" before fast-path matching');
+    assert('telegram fast context lookup answers simple response-mode questions compactly',
+      vendorPatchSrc.includes('const wantsCompactResponseMode')
+      && vendorPatchSrc.includes('compactResponseModeText')
+      && vendorPatchSrc.includes('fastTelegramContextLookup.compact === true'),
+      'Telegram response-mode-only questions should return a short answer instead of the full layered context report');
     assert('telegram fast context guard only warns on real sensitive actions',
       vendorPatchSrc.includes('const sensitiveActionRequest =')
       && vendorPatchSrc.includes('const rolePolicyChangeRequest =')
