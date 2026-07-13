@@ -985,6 +985,8 @@ function ensureTelegramFastIdLookupPatch(vendorDir, homeDir) {
   if (!distDir) return;
   const files = fs.readdirSync(distDir).filter(f => f.startsWith('bot-') && f.endsWith('.js'));
   const MARKER = '20260708-fast-telegram-id-lookup-v1';
+  const oldNormalizeIdLine = '\treturn String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, " ").trim();';
+  const newNormalizeIdLine = '\treturn String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/[\\u0111\\u0110]/g, "d").toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, " ").trim();';
   const helperAnchor = 'const dispatchTelegramMessage = async ({ context, bot, cfg, runtime, replyToMode, streamMode, textLimit, telegramCfg, telegramDeps = defaultTelegramBotDeps, opts }) => {';
   const dispatchAnchor =
     '\tlogTelegramDiag("dispatch-start", `streamMode=${streamMode ?? "n/a"} replyToMode=${replyToMode ?? "n/a"}`);\n' +
@@ -992,7 +994,7 @@ function ensureTelegramFastIdLookupPatch(vendorDir, homeDir) {
   const helperCode =
     'const MODOROCLAW_FAST_TELEGRAM_ID_LOOKUP_MARKER = "' + MARKER + '";\n' +
     'function normalize9BizClawTelegramLookupText(value) {\n' +
-    '\treturn String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, " ").trim();\n' +
+    newNormalizeIdLine + '\n' +
     '}\n' +
     'function extract9BizClawTelegramIdLookupQuery(text) {\n' +
     '\tconst raw = String(text || "").trim();\n' +
@@ -1073,8 +1075,18 @@ function ensureTelegramFastIdLookupPatch(vendorDir, homeDir) {
   for (const file of files) {
     const fp = path.join(distDir, file);
     let src = fs.readFileSync(fp, 'utf-8');
+    if (src.includes('try9BizClawTelegramIdLookupFastPath')) {
+      if (src.includes(oldNormalizeIdLine)) {
+        src = src.replace(oldNormalizeIdLine, newNormalizeIdLine);
+        fs.writeFileSync(fp, src, 'utf-8');
+        console.log('[openclaw-latency] telegram-fast-id-lookup: normalize upgraded in ' + file);
+        return;
+      }
+      console.log('[openclaw-latency] telegram-fast-id-lookup: already patched');
+      return;
+    }
     if (!src.includes(helperAnchor)) continue;
-    if (src.includes(MARKER) || src.includes('try9BizClawTelegramIdLookupFastPath')) {
+    if (src.includes(MARKER)) {
       console.log('[openclaw-latency] telegram-fast-id-lookup: already patched');
       return;
     }
@@ -1096,13 +1108,15 @@ function ensureTelegramFastRoleLookupPatch(vendorDir, homeDir) {
   if (!distDir) return;
   const files = fs.readdirSync(distDir).filter(f => f.startsWith('bot-') && f.endsWith('.js'));
   const MARKER = '20260709-fast-telegram-role-lookup-v1';
+  const oldNormalizeRoleLine = '\treturn String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, " ").trim();';
+  const newNormalizeRoleLine = '\treturn String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/[\\u0111\\u0110]/g, "d").toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, " ").trim();';
   const helperAnchor = 'const dispatchTelegramMessage = async ({ context, bot, cfg, runtime, replyToMode, streamMode, textLimit, telegramCfg, telegramDeps = defaultTelegramBotDeps, opts }) => {';
   const idLookupAnchor = '\tconst fastTelegramIdLookup = await try9BizClawTelegramIdLookupFastPath(ctxPayload.RawBody ?? ctxPayload.Body ?? "");';
   const draftAnchor = '\tconst draftMaxChars = Math.min(textLimit, 4096);';
   const helperCode =
     'const MODOROCLAW_FAST_TELEGRAM_ROLE_LOOKUP_MARKER = "' + MARKER + '";\n' +
     'function normalize9BizClawTelegramRoleLookupText(value) {\n' +
-    '\treturn String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, " ").trim();\n' +
+    newNormalizeRoleLine + '\n' +
     '}\n' +
     'function display9BizClawTelegramRole(role) {\n' +
     '\tconst normalized = String(role || "unknown").trim().toLowerCase();\n' +
@@ -1198,8 +1212,18 @@ function ensureTelegramFastRoleLookupPatch(vendorDir, homeDir) {
   for (const file of files) {
     const fp = path.join(distDir, file);
     let src = fs.readFileSync(fp, 'utf-8');
+    if (src.includes('try9BizClawTelegramRoleLookupFastPath')) {
+      if (src.includes(oldNormalizeRoleLine)) {
+        src = src.replace(oldNormalizeRoleLine, newNormalizeRoleLine);
+        fs.writeFileSync(fp, src, 'utf-8');
+        console.log('[openclaw-latency] telegram-fast-role-lookup: normalize upgraded in ' + file);
+        return;
+      }
+      console.log('[openclaw-latency] telegram-fast-role-lookup: already patched');
+      return;
+    }
     if (!src.includes(helperAnchor)) continue;
-    if (src.includes(MARKER) || src.includes('try9BizClawTelegramRoleLookupFastPath')) {
+    if (src.includes(MARKER)) {
       console.log('[openclaw-latency] telegram-fast-role-lookup: already patched');
       return;
     }
@@ -1222,12 +1246,18 @@ function ensureTelegramFastContextLookupPatch(vendorDir, homeDir) {
   if (!distDir) return;
   const files = fs.readdirSync(distDir).filter(f => f.startsWith('bot-') && f.endsWith('.js'));
   const MARKER = '20260710-fast-telegram-context-lookup-v1';
+  const responseModeContextPattern = 'response mode|che do|che do phan hoi|moi tin|mention|bat moi tin|doi role';
+  const oldNormalizeContextLine = '\treturn String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, " ").trim();';
+  const newNormalizeContextLine = '\treturn String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").replace(/[\\u0111\\u0110]/g, "d").toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, " ").trim();';
+  const oldWantsContextLine = '\tconst wantsContext = /\\b(ket hop|nguon|directory|profile|ho so|history|lich su|member metadata|metadata|quyen|owner|admin|member|kien thuc|luu y|tuong tac|response mode|bat moi tin|doi role|phan loai|file noi bo|cron|tool)\\b/.test(normalized);';
+  const legacyWantsContextLine = '\tconst wantsContext = /\\b(ket hop|nguon|directory|profile|ho so|history|lich su|member metadata|metadata|quyen|owner|admin|member|kien thuc|luu y|tuong tac|response mode|bat moi tin|doi role|phan loai)\\b/.test(normalized);';
+  const newWantsContextLine = '\tconst wantsContext = /\\b(ket hop|nguon|directory|profile|ho so|history|lich su|member metadata|metadata|quyen|owner|admin|member|kien thuc|luu y|tuong tac|' + responseModeContextPattern + '|phan loai|file noi bo|cron|tool)\\b/.test(normalized);';
   const helperAnchor = 'const dispatchTelegramMessage = async ({ context, bot, cfg, runtime, replyToMode, streamMode, textLimit, telegramCfg, telegramDeps = defaultTelegramBotDeps, opts }) => {';
   const dispatchAnchor = '\tlogTelegramDiag("dispatch-start", `streamMode=${streamMode ?? "n/a"} replyToMode=${replyToMode ?? "n/a"}`);\n';
   const helperLines = [
     'const MODOROCLAW_FAST_TELEGRAM_CONTEXT_LOOKUP_MARKER = "' + MARKER + '";',
     'function normalize9BizClawTelegramContextText(value) {',
-    '\treturn String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase().replace(/[^\\p{L}\\p{N}]+/gu, " ").trim();',
+    newNormalizeContextLine,
     '}',
     'function clean9BizClawTelegramContextText(value, max = 420) {',
     '\tconst text = String(value || "").replace(/\\r/g, "").replace(/[ \\t]+/g, " ").replace(/\\n{3,}/g, "\\n\\n").trim();',
@@ -1284,7 +1314,7 @@ function ensureTelegramFastContextLookupPatch(vendorDir, homeDir) {
     '\tconst raw = String(text || "").trim();',
     '\tif (!raw) return null;',
     '\tconst normalized = normalize9BizClawTelegramContextText(raw);',
-    '\tconst wantsContext = /\\b(ket hop|nguon|directory|profile|ho so|history|lich su|member metadata|metadata|quyen|owner|admin|member|kien thuc|luu y|tuong tac|response mode|bat moi tin|doi role|phan loai|file noi bo|cron|tool)\\b/.test(normalized);',
+    newWantsContextLine,
     '\tif (!wantsContext) return null;',
     '\tif (!/(telegram|nhom|group|kenh|chat|llk|id|khach|cron|file noi bo)/.test(normalized)) return null;',
     '\ttry {',
@@ -1368,8 +1398,32 @@ function ensureTelegramFastContextLookupPatch(vendorDir, homeDir) {
   for (const file of files) {
     const fp = path.join(distDir, file);
     let src = fs.readFileSync(fp, 'utf-8');
+    if (src.includes('try9BizClawTelegramContextLookupFastPath')) {
+      let upgraded = false;
+      if (src.includes(oldNormalizeContextLine)) {
+        src = src.replace(oldNormalizeContextLine, newNormalizeContextLine);
+        upgraded = true;
+      }
+      if (!src.includes(responseModeContextPattern)) {
+        const upgradeAnchor = src.includes(oldWantsContextLine) ? oldWantsContextLine : (src.includes(legacyWantsContextLine) ? legacyWantsContextLine : '');
+        if (!upgradeAnchor) {
+          console.warn('[openclaw-latency] telegram-fast-context-lookup: response-mode upgrade anchor not found in ' + file);
+          _logPatchFailure(homeDir, 'ensureTelegramFastContextLookupPatch', `response-mode upgrade anchor missing in ${file}`);
+          return;
+        }
+        src = src.replace(upgradeAnchor, newWantsContextLine);
+        upgraded = true;
+      }
+      if (upgraded) {
+        fs.writeFileSync(fp, src, 'utf-8');
+        console.log('[openclaw-latency] telegram-fast-context-lookup: upgraded in ' + file);
+        return;
+      }
+      console.log('[openclaw-latency] telegram-fast-context-lookup: already patched');
+      return;
+    }
     if (!src.includes(helperAnchor)) continue;
-    if (src.includes(MARKER) || src.includes('try9BizClawTelegramContextLookupFastPath')) {
+    if (src.includes(MARKER)) {
       console.log('[openclaw-latency] telegram-fast-context-lookup: already patched');
       return;
     }

@@ -73,6 +73,14 @@ async function run() {
       && vendorPatchSrc.includes('fast-telegram-context-lookup')
       && vendorPatchSrc.includes('ensureTelegramFastContextLookupPatch(vendorDir, homeDir)'),
       'missing Telegram fast context lookup vendor patch guard');
+    assert('telegram fast context lookup handles natural response-mode questions',
+      vendorPatchSrc.includes('response mode|che do|che do phan hoi|moi tin|mention|bat moi tin|doi role'),
+      'Telegram response-mode questions like "che do @mention hay moi tin" must stay on fast-path and not fall through to LLM');
+    assert('telegram fast context lookup normalizes Vietnamese d-bar',
+      vendorPatchSrc.includes('.replace(/[\\\\u0111\\\\u0110]/g, "d").toLowerCase()')
+      && vendorPatchSrc.includes('oldNormalizeContextLine')
+      && vendorPatchSrc.includes('newNormalizeContextLine'),
+      'Telegram natural questions like "chế độ phản hồi" must normalize to "che do phan hoi" before fast-path matching');
     assert('telegram fast context guard only warns on real sensitive actions',
       vendorPatchSrc.includes('const sensitiveActionRequest =')
       && vendorPatchSrc.includes('const rolePolicyChangeRequest =')
@@ -717,9 +725,18 @@ async function run() {
       && memoryIndexSrc.includes('Telegram role là `customer`'),
       'MEMORY.md missing Telegram profile routing');
 
+    assert('Telegram fast id lookup vendor patch normalizes Vietnamese d-bar',
+      vendorPatchSrc.includes('20260708-fast-telegram-id-lookup-v1')
+      && vendorPatchSrc.includes('try9BizClawTelegramIdLookupFastPath')
+      && vendorPatchSrc.includes('oldNormalizeIdLine')
+      && vendorPatchSrc.includes('newNormalizeIdLine')
+      && vendorPatchSrc.includes('.replace(/[\\\\u0111\\\\u0110]/g, "d").toLowerCase()'),
+      'missing Telegram fast id lookup d-bar normalization guard');
     assert('Telegram fast role lookup vendor patch exists',
       vendorPatchSrc.includes('20260709-fast-telegram-role-lookup-v1')
       && vendorPatchSrc.includes('try9BizClawTelegramRoleLookupFastPath')
+      && vendorPatchSrc.includes('oldNormalizeRoleLine')
+      && vendorPatchSrc.includes('newNormalizeRoleLine')
       && vendorPatchSrc.includes('fast-telegram-role-lookup'),
       'missing Telegram fast role lookup patch');
     assert('Telegram provider timeout guard vendor patch exists',
