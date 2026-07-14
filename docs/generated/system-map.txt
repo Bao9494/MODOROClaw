@@ -133,7 +133,7 @@ Large Source Files
 - electron/lib/license.js: 187389 bytes
 - electron/lib/cron-api.js: 186731 bytes
 - electron/lib/cron.js: 133310 bytes
-- electron/lib/vendor-patches.js: 120603 bytes
+- electron/lib/vendor-patches.js: 130544 bytes
 - electron/ui/wizard.html: 117791 bytes
 - electron/lib/knowledge.js: 96863 bytes
 - electron/lib/channels.js: 96705 bytes
@@ -144,7 +144,7 @@ Large Source Files
 - electron/lib/workspace.js: 66407 bytes
 - electron/lib/google-api.js: 65108 bytes
 - electron/lib/config.js: 61710 bytes
+- electron/lib/nine-router.js: 60152 bytes
 - electron/lib/telegram-memory.js: 59894 bytes
 - electron/lib/fb-publisher.js: 57530 bytes
-- electron/lib/nine-router.js: 52447 bytes
 - electron/lib/google-routes.js: 45145 bytes

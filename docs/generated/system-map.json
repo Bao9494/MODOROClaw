@@ -3038,7 +3038,7 @@
     },
     {
       "path": "electron/lib/vendor-patches.js",
-      "bytes": 120603
+      "bytes": 130544
     },
     {
       "path": "electron/ui/wizard.html",
@@ -3081,16 +3081,16 @@
       "bytes": 61710
     },
     {
+      "path": "electron/lib/nine-router.js",
+      "bytes": 60152
+    },
+    {
       "path": "electron/lib/telegram-memory.js",
       "bytes": 59894
     },
     {
       "path": "electron/lib/fb-publisher.js",
       "bytes": 57530
-    },
-    {
-      "path": "electron/lib/nine-router.js",
-      "bytes": 52447
     },
     {
       "path": "electron/lib/google-routes.js",

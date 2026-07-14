@@ -4,6 +4,27 @@
 
 ---
 
+## 2026-07-14
+
+### 9Router Codex Desktop auth sync
+
+**File(s):** `electron/lib/nine-router.js`, `electron/scripts/check-9router-codex-auth-sync.js`, `docs/plans/2026-07-14-9router-codex-desktop-auth-sync.md`
+
+**Root cause:** 9Router can keep a stale Codex OAuth/access-token provider after the provider session expires. Telegram/Zalo LLM calls then fail even when Codex Desktop still has a fresh signed-in token.
+
+**Fix/Change:**
+- Add startup background sync that reads Codex Desktop auth metadata from `%USERPROFILE%\.codex\auth.json` without logging the token.
+- Skip import only when an active Codex provider passes a real `/api/providers/{id}/test`, preventing duplicate provider rows on normal boots while still catching stale `testStatus` metadata.
+- Import the Codex Desktop access token through 9Router's local `/api/oauth/codex/import-token` route only when no healthy active Codex provider exists.
+- Test the imported/active provider through `/api/providers/{id}/test`.
+- Add a contract test for JWT metadata parsing, expiry rejection, and no token exposure in test metadata.
+
+**Verification:** RED/GREEN `node electron/scripts/check-9router-codex-auth-sync.js` PASS after implementation; `node electron/scripts/check-9router-0463-compat.js` PASS; live `ensure9RouterCodexDesktopAuthSync()` returned `skipped=active-provider-healthy`; live `call9Router('Reply with exactly: OK')` returned `OK` in about 1.2s.
+
+**State:** Source fix complete. Runtime is already operational from the manual token import/recovery; this source change makes the recovery durable for future builds/installs.
+
+---
+
 ## 2026-07-13
 
 ### Telegram provider auth error guard

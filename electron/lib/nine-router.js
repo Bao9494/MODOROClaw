@@ -41,6 +41,8 @@ function get9RouterSqliteDbPath() { return path.join(get9RouterDataDir(), 'db', 
 
 const ZALO_COMBO_MODELS = ['cx/gpt-5.4', 'cx/gpt-5.5'];
 const ZALO_COMBO_MODELS_JSON = JSON.stringify(ZALO_COMBO_MODELS);
+const CODEX_DESKTOP_TOKEN_MIN_TTL_MS = 5 * 60 * 1000;
+const CODEX_PROVIDER_EXPIRY_SKEW_MS = 5 * 60 * 1000;
 
 function get9RouterSqliteNodeBin() {
   const candidates = [];
@@ -503,6 +505,172 @@ function schedule9RouterRtkDefaultEnablement() {
   if (typeof timer.unref === 'function') timer.unref();
 }
 
+function base64UrlDecodeJson(input) {
+  const text = String(input || '').replace(/-/g, '+').replace(/_/g, '/');
+  const padded = text.padEnd(text.length + ((4 - (text.length % 4)) % 4), '=');
+  return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+}
+
+function decodeJwtPayload(token) {
+  const parts = String(token || '').split('.');
+  if (parts.length < 2 || !parts[1]) throw new Error('malformed-jwt');
+  return base64UrlDecodeJson(parts[1]);
+}
+
+function extractCodexAuthClaims(payload) {
+  const namespaced = payload && payload['https://api.openai.com/auth'];
+  if (namespaced && typeof namespaced === 'object') return namespaced;
+  const nested = payload && (payload.auth || payload.openai || payload.chatgpt);
+  if (nested && typeof nested === 'object') return nested;
+  return {};
+}
+
+function parseCodexDesktopAccessTokenMetadata(accessToken, nowMs = Date.now(), minTtlMs = CODEX_DESKTOP_TOKEN_MIN_TTL_MS) {
+  if (!accessToken || typeof accessToken !== 'string') return { valid: false, reason: 'missing-token' };
+  try {
+    const payload = decodeJwtPayload(accessToken);
+    const expSeconds = Number(payload.exp || 0);
+    if (!Number.isFinite(expSeconds) || expSeconds <= 0) return { valid: false, reason: 'missing-exp' };
+    const expiresAtMs = expSeconds * 1000;
+    const expiresInMs = expiresAtMs - nowMs;
+    const expiresAt = new Date(expiresAtMs).toISOString();
+    if (expiresInMs <= 0) return { valid: false, reason: 'expired', expiresAt, expiresInMs };
+    if (expiresInMs <= minTtlMs) return { valid: false, reason: 'expires-soon', expiresAt, expiresInMs };
+    const claims = extractCodexAuthClaims(payload);
+    return {
+      valid: true,
+      email: payload.email || claims.email || null,
+      plan: claims.chatgpt_plan_type || claims.chatgptPlanType || payload.chatgpt_plan_type || payload.plan || null,
+      subject: payload.sub || claims.chatgpt_account_id || null,
+      expiresAt,
+      expiresInMs,
+    };
+  } catch (e) {
+    return { valid: false, reason: e?.message || 'invalid-token' };
+  }
+}
+
+function getCodexDesktopAuthPath() {
+  return path.join(ctx.HOME, '.codex', 'auth.json');
+}
+
+function readCodexDesktopAuthFor9Router(nowMs = Date.now()) {
+  const authPath = getCodexDesktopAuthPath();
+  try {
+    if (!fs.existsSync(authPath)) return { ok: false, reason: 'codex-auth-missing', authPath };
+    const auth = JSON.parse(fs.readFileSync(authPath, 'utf8'));
+    const accessToken = auth?.tokens?.access_token || auth?.access_token || auth?.accessToken || '';
+    const metadata = parseCodexDesktopAccessTokenMetadata(accessToken, nowMs);
+    if (!metadata.valid) return { ok: false, reason: metadata.reason, metadata, authPath };
+    return { ok: true, accessToken, metadata, authPath };
+  } catch (e) {
+    return { ok: false, reason: 'codex-auth-read-error', error: e?.message || String(e), authPath };
+  }
+}
+
+function get9RouterProviderConnections(payload) {
+  const conns = payload?.connections || payload?.providers || payload?.providerConnections || [];
+  return Array.isArray(conns) ? conns : [];
+}
+
+function is9RouterCodexProviderHealthy(provider, nowMs = Date.now()) {
+  if (!provider || provider.provider !== 'codex' || provider.isActive === false) return false;
+  if (provider.errorCode || provider.lastError || provider.testStatus === 'error') return false;
+  const expiresAtMs = provider.expiresAt ? Date.parse(provider.expiresAt) : NaN;
+  if (Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs + CODEX_PROVIDER_EXPIRY_SKEW_MS) return false;
+  if (provider.testStatus === 'active') return true;
+  const authType = String(provider.authType || '').toLowerCase();
+  return authType.includes('oauth') || authType.includes('access_token');
+}
+
+async function ensure9RouterCodexDesktopAuthSync(options = {}) {
+  const nowMs = Number(options.nowMs || Date.now());
+  const auth = options.auth || readCodexDesktopAuthFor9Router(nowMs);
+  if (!auth.ok) return { changed: false, skipped: auth.reason, error: auth.error || null };
+
+  const providersRes = await nineRouterApi('GET', '/api/providers', null, options.listTimeoutMs || 5000);
+  if (!providersRes.success) {
+    return { changed: false, skipped: 'providers-unavailable', error: providersRes.error || null };
+  }
+
+  const providers = get9RouterProviderConnections(providersRes.data);
+  const healthy = providers.find(p => is9RouterCodexProviderHealthy(p, nowMs));
+  if (healthy) {
+    if (healthy.id) {
+      const testExisting = await nineRouterApi('POST', `/api/providers/${healthy.id}/test`, null, options.testTimeoutMs || 15000);
+      if (testExisting.success) {
+        return {
+          changed: false,
+          skipped: 'active-provider-healthy',
+          providerId: healthy.id || null,
+          authType: healthy.authType || null,
+        };
+      }
+      console.warn('[9router] active Codex provider failed health test; importing Codex Desktop token:', testExisting.error || 'unknown');
+    }
+  }
+
+  const importRes = await nineRouterApi('POST', '/api/oauth/codex/import-token', {
+    accessToken: auth.accessToken,
+    name: 'Codex Desktop token (auto-sync)',
+  }, options.importTimeoutMs || 10000);
+
+  if (!importRes.success) {
+    return { changed: false, error: importRes.error || 'codex-import-failed', statusCode: importRes.statusCode || null };
+  }
+
+  const afterRes = await nineRouterApi('GET', '/api/providers', null, options.listTimeoutMs || 5000);
+  const afterProviders = afterRes.success ? get9RouterProviderConnections(afterRes.data) : [];
+  const activeCodex = afterProviders.filter(p => p && p.provider === 'codex' && p.isActive !== false);
+  const importedId = importRes.data?.connection?.id || importRes.data?.provider?.id || importRes.data?.id || null;
+  const testTarget = activeCodex.find(p => p.id === importedId) || activeCodex.find(p => String(p.authType || '').toLowerCase().includes('access_token')) || activeCodex[0] || null;
+  let testResult = null;
+  if (testTarget?.id) {
+    testResult = await nineRouterApi('POST', `/api/providers/${testTarget.id}/test`, null, options.testTimeoutMs || 15000);
+  }
+
+  if (testResult && !testResult.success) {
+    return {
+      changed: true,
+      warning: 'imported-but-test-failed',
+      providerId: testTarget?.id || importedId,
+      error: testResult.error || null,
+    };
+  }
+
+  console.log('[9router] synced Codex Desktop auth into 9Router', JSON.stringify({
+    providerId: testTarget?.id || importedId || null,
+    email: auth.metadata.email || null,
+    plan: auth.metadata.plan || null,
+    expiresAt: auth.metadata.expiresAt || null,
+  }));
+  return {
+    changed: true,
+    providerId: testTarget?.id || importedId || null,
+    email: auth.metadata.email || null,
+    plan: auth.metadata.plan || null,
+    expiresAt: auth.metadata.expiresAt || null,
+  };
+}
+
+function schedule9RouterCodexDesktopAuthSync() {
+  const timer = setTimeout(async () => {
+    try {
+      const ready = await waitFor9RouterReady(30000);
+      if (!ready) {
+        console.warn('[9router] Codex Desktop auth sync deferred: 9Router not ready');
+        return;
+      }
+      const result = await ensure9RouterCodexDesktopAuthSync();
+      if (result.changed) return;
+      if (result.error) console.warn('[9router] Codex Desktop auth sync skipped:', result.skipped || result.error);
+    } catch (e) {
+      console.warn('[9router] Codex Desktop auth sync error:', e.message);
+    }
+  }, 2500);
+  if (typeof timer.unref === 'function') timer.unref();
+}
+
 function start9Router() {
   if (routerProcess) return;
   try {
@@ -611,6 +779,7 @@ function start9Router() {
     });
     routerProcess.unref();
     schedule9RouterRtkDefaultEnablement();
+    schedule9RouterCodexDesktopAuthSync();
     routerProcess.on('exit', (code, signal) => {
       routerProcess = null;
       if (thisFd !== null) { try { fs.closeSync(thisFd); } catch {} }
@@ -1197,6 +1366,7 @@ module.exports = {
   ensure9RouterDefaultPassword, ensure9RouterZaloCombo, saveProviderKey, ensure9RouterProviderKeys,
   ensure9RouterApiKeySync,
   ensure9RouterRtkDefaultEnabled,
+  ensure9RouterCodexDesktopAuthSync,
   start9Router, stop9Router, nineRouterApi, autoFix9RouterSqlite,
   waitFor9RouterReady, validateOllamaKeyDirect,
   call9Router, call9RouterVision, detectChatgptPlusOAuth,
@@ -1208,5 +1378,7 @@ module.exports = {
     computeLegacy9RouterCliToken,
     getLegacy9RouterCliToken,
     get9RouterDataDir,
+    parseCodexDesktopAccessTokenMetadata,
+    readCodexDesktopAuthFor9Router,
   },
 };
