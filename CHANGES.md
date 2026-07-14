@@ -14,9 +14,9 @@
 
 **Fix/Change:**
 - Add startup background sync that reads Codex Desktop auth metadata from `%USERPROFILE%\.codex\auth.json` without logging the token.
-- Skip import only when an active Codex provider passes a real `/api/providers/{id}/test`, preventing duplicate provider rows on normal boots while still catching stale `testStatus` metadata.
-- Import the Codex Desktop access token through 9Router's local `/api/oauth/codex/import-token` route only when no healthy active Codex provider exists.
-- Test the imported/active provider through `/api/providers/{id}/test`.
+- Skip import only when an active Codex provider passes a real 9Router provider test, preventing duplicate provider rows on normal boots while still catching stale `testStatus` metadata.
+- Import the Codex Desktop access token through 9Router's local Codex import-token endpoint only when no healthy active Codex provider exists.
+- Test the imported/active provider through 9Router's provider-test endpoint.
 - Add a contract test for JWT metadata parsing, expiry rejection, and no token exposure in test metadata.
 
 **Verification:** RED/GREEN `node electron/scripts/check-9router-codex-auth-sync.js` PASS after implementation; `node electron/scripts/check-9router-0463-compat.js` PASS; live `ensure9RouterCodexDesktopAuthSync()` returned `skipped=active-provider-healthy`; live `call9Router('Reply with exactly: OK')` returned `OK` in about 1.2s.

@@ -20,10 +20,10 @@ Make 9BizClaw recover this class of failure at 9Router startup:
 1. Read Codex Desktop auth from `%USERPROFILE%\.codex\auth.json`.
 2. Decode only non-secret JWT metadata: email, plan, subject, expiry.
 3. Refuse missing, malformed, expired, or near-expiry tokens.
-4. Check current 9Router Codex providers via local `/api/providers`.
-5. If an active Codex provider looks healthy, test it through `/api/providers/{id}/test`.
-6. If no healthy active Codex provider exists, import the Codex Desktop access token through `/api/oauth/codex/import-token`.
-7. Test the imported/active Codex provider through `/api/providers/{id}/test`.
+4. Check current 9Router Codex providers via 9Router's local provider-list endpoint.
+5. If an active Codex provider looks healthy, test it through 9Router's provider-test endpoint.
+6. If no healthy active Codex provider exists, import the Codex Desktop access token through 9Router's Codex import-token endpoint.
+7. Test the imported/active Codex provider through 9Router's provider-test endpoint.
 
 ## Safety Rules
 
